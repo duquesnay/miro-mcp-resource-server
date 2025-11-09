@@ -1,9 +1,9 @@
 use crate::auth::{AuthError, MiroOAuthClient, TokenStore};
 use crate::miro::types::{
-    Board, BoardsResponse, CreateBoardRequest, CreateBoardResponse, CreateFrameRequest,
-    CreateShapeRequest, CreateStickyNoteRequest, CreateTextRequest, FrameResponse, Geometry,
-    Item, ItemsResponse, Position, ShapeResponse, StickyNoteResponse, TextResponse,
-    UpdateItemRequest,
+    Board, BoardsResponse, Caption, ConnectorResponse, ConnectorStyle, CreateBoardRequest,
+    CreateBoardResponse, CreateConnectorRequest, CreateFrameRequest, CreateShapeRequest,
+    CreateStickyNoteRequest, CreateTextRequest, FrameResponse, Geometry, Item, ItemsResponse,
+    Position, ShapeResponse, StickyNoteResponse, TextResponse, UpdateItemRequest,
 };
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -262,6 +262,48 @@ impl MiroClient {
         Ok(frame)
     }
 
+    /// Create a connector between two items on a board
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_connector(
+        &self,
+        board_id: &str,
+        start_item_id: String,
+        end_item_id: String,
+        stroke_color: Option<String>,
+        stroke_width: Option<f64>,
+        start_cap: Option<String>,
+        end_cap: Option<String>,
+        captions: Option<Vec<Caption>>,
+    ) -> Result<ConnectorResponse, MiroError> {
+        let style = if stroke_color.is_some()
+            || stroke_width.is_some()
+            || start_cap.is_some()
+            || end_cap.is_some()
+        {
+            Some(ConnectorStyle {
+                stroke_color,
+                stroke_width,
+                start_cap,
+                end_cap,
+            })
+        } else {
+            None
+        };
+
+        let request_body = CreateConnectorRequest {
+            start_item: start_item_id,
+            end_item: end_item_id,
+            style,
+            captions,
+        };
+
+        let json_body = serde_json::to_value(&request_body)?;
+        let path = format!("/boards/{}/connectors", board_id);
+        let response = self.post(&path, Some(json_body)).await?;
+        let connector: ConnectorResponse = serde_json::from_value(response)?;
+        Ok(connector)
+    }
+
     /// List items on a board with optional type filtering
     pub async fn list_items(
         &self,
@@ -518,5 +560,46 @@ mod tests {
         assert!(json.contains("250"));
         assert!(json.contains("300"));
         assert!(json.contains("200"));
+    }
+
+    #[test]
+    fn test_connector_request_construction_with_style() {
+        let style = ConnectorStyle {
+            stroke_color: Some("blue".to_string()),
+            stroke_width: Some(2.5),
+            start_cap: Some("none".to_string()),
+            end_cap: Some("arrow".to_string()),
+        };
+
+        let captions = vec![Caption {
+            content: "depends on".to_string(),
+            position: Some(0.5),
+        }];
+
+        let request = CreateConnectorRequest {
+            start_item: "shape-1".to_string(),
+            end_item: "shape-2".to_string(),
+            style: Some(style),
+            captions: Some(captions),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("\"startItem\":\"shape-1\""));
+        assert!(json.contains("\"endItem\":\"shape-2\""));
+        assert!(json.contains("\"strokeColor\":\"blue\""));
+    }
+
+    #[test]
+    fn test_connector_response_deserialization() {
+        let json = r#"{
+            "id": "connector-999",
+            "startItem": "node-a",
+            "endItem": "node-b"
+        }"#;
+
+        let response: ConnectorResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.id, "connector-999");
+        assert_eq!(response.start_item, Some("node-a".to_string()));
+        assert_eq!(response.end_item, Some("node-b".to_string()));
     }
 }

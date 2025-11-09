@@ -197,6 +197,54 @@ pub struct FrameResponse {
     pub geometry: Option<Geometry>,
 }
 
+/// Connector style configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectorStyle {
+    #[serde(rename = "strokeColor", skip_serializing_if = "Option::is_none")]
+    pub stroke_color: Option<String>,
+    #[serde(rename = "strokeWidth", skip_serializing_if = "Option::is_none")]
+    pub stroke_width: Option<f64>,
+    #[serde(rename = "startCap", skip_serializing_if = "Option::is_none")]
+    pub start_cap: Option<String>,
+    #[serde(rename = "endCap", skip_serializing_if = "Option::is_none")]
+    pub end_cap: Option<String>,
+}
+
+/// Caption for a connector
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Caption {
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<f64>,
+}
+
+/// Request body for creating a connector
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateConnectorRequest {
+    #[serde(rename = "startItem")]
+    pub start_item: String,
+    #[serde(rename = "endItem")]
+    pub end_item: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<ConnectorStyle>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub captions: Option<Vec<Caption>>,
+}
+
+/// Response for connector creation
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConnectorResponse {
+    pub id: String,
+    #[serde(rename = "startItem", skip_serializing_if = "Option::is_none")]
+    pub start_item: Option<String>,
+    #[serde(rename = "endItem", skip_serializing_if = "Option::is_none")]
+    pub end_item: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<ConnectorStyle>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub captions: Option<Vec<Caption>>,
+}
+
 /// Generic item response that can represent any item type
 #[derive(Debug, Clone, Deserialize)]
 pub struct Item {
@@ -492,5 +540,128 @@ mod tests {
         assert!(json.contains("\"x\":150"));
         assert!(json.contains("\"y\":250"));
         assert!(!json.contains("data")); // Should be skipped when None
+    }
+
+    #[test]
+    fn test_connector_style_serialization() {
+        let style = ConnectorStyle {
+            stroke_color: Some("black".to_string()),
+            stroke_width: Some(2.0),
+            start_cap: Some("none".to_string()),
+            end_cap: Some("arrow".to_string()),
+        };
+
+        let json = serde_json::to_string(&style).unwrap();
+        assert!(json.contains("\"strokeColor\":\"black\""));
+        assert!(json.contains("\"strokeWidth\":2"));
+        assert!(json.contains("\"startCap\":\"none\""));
+        assert!(json.contains("\"endCap\":\"arrow\""));
+    }
+
+    #[test]
+    fn test_connector_style_with_defaults() {
+        let style = ConnectorStyle {
+            stroke_color: None,
+            stroke_width: None,
+            start_cap: None,
+            end_cap: None,
+        };
+
+        let json = serde_json::to_string(&style).unwrap();
+        assert_eq!(json, "{}");
+    }
+
+    #[test]
+    fn test_caption_serialization() {
+        let caption = Caption {
+            content: "Test label".to_string(),
+            position: Some(0.5),
+        };
+
+        let json = serde_json::to_string(&caption).unwrap();
+        assert!(json.contains("\"content\":\"Test label\""));
+        assert!(json.contains("\"position\":0.5"));
+    }
+
+    #[test]
+    fn test_caption_without_position() {
+        let caption = Caption {
+            content: "Test label".to_string(),
+            position: None,
+        };
+
+        let json = serde_json::to_string(&caption).unwrap();
+        assert!(json.contains("\"content\":\"Test label\""));
+        assert!(!json.contains("position"));
+    }
+
+    #[test]
+    fn test_create_connector_request_serialization() {
+        let request = CreateConnectorRequest {
+            start_item: "item-1".to_string(),
+            end_item: "item-2".to_string(),
+            style: Some(ConnectorStyle {
+                stroke_color: Some("red".to_string()),
+                stroke_width: Some(3.0),
+                start_cap: Some("circle".to_string()),
+                end_cap: Some("arrow".to_string()),
+            }),
+            captions: Some(vec![
+                Caption {
+                    content: "Depends on".to_string(),
+                    position: Some(0.5),
+                },
+            ]),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("\"startItem\":\"item-1\""));
+        assert!(json.contains("\"endItem\":\"item-2\""));
+        assert!(json.contains("\"strokeColor\":\"red\""));
+        assert!(json.contains("\"Depends on\""));
+    }
+
+    #[test]
+    fn test_create_connector_request_minimal() {
+        let request = CreateConnectorRequest {
+            start_item: "item-1".to_string(),
+            end_item: "item-2".to_string(),
+            style: None,
+            captions: None,
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("\"startItem\":\"item-1\""));
+        assert!(json.contains("\"endItem\":\"item-2\""));
+        assert!(!json.contains("style"));
+        assert!(!json.contains("captions"));
+    }
+
+    #[test]
+    fn test_connector_response_deserialization() {
+        let json = r#"{
+            "id": "connector-123",
+            "startItem": "item-1",
+            "endItem": "item-2",
+            "style": {
+                "strokeColor": "black",
+                "strokeWidth": 2.0,
+                "endCap": "arrow"
+            },
+            "captions": [
+                {
+                    "content": "connects",
+                    "position": 0.5
+                }
+            ]
+        }"#;
+
+        let response: ConnectorResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.id, "connector-123");
+        assert_eq!(response.start_item, Some("item-1".to_string()));
+        assert_eq!(response.end_item, Some("item-2".to_string()));
+        assert!(response.style.is_some());
+        assert!(response.captions.is_some());
+        assert_eq!(response.captions.unwrap()[0].content, "connects");
     }
 }

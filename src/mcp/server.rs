@@ -85,6 +85,24 @@ pub struct DeleteItemParams {
     pub item_id: String,
 }
 
+/// Parameters for creating a connector
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateConnectorParams {
+    pub board_id: String,
+    pub start_item_id: String,
+    pub end_item_id: String,
+    #[serde(default)]
+    pub stroke_color: Option<String>,
+    #[serde(default)]
+    pub stroke_width: Option<f64>,
+    #[serde(default)]
+    pub start_cap: Option<String>,
+    #[serde(default)]
+    pub end_cap: Option<String>,
+    #[serde(default)]
+    pub captions: Option<Vec<serde_json::Value>>,
+}
+
 /// MCP server for Miro
 #[derive(Clone)]
 pub struct MiroMcpServer {
@@ -231,6 +249,15 @@ impl MiroMcpServer {
     #[tool(description = "Delete an item from a Miro board")]
     async fn delete_item(&self) -> Result<CallToolResult, McpError> {
         let message = "delete_item tool registered. Use tool_call with parameters: { board_id, item_id }".to_string();
+        Ok(CallToolResult::success(vec![Content::text(message)]))
+    }
+
+    /// Create a connector between two items
+    #[tool(
+        description = "Create a connector (line/arrow) between two items on a Miro board with optional styling and captions"
+    )]
+    async fn create_connector(&self) -> Result<CallToolResult, McpError> {
+        let message = "create_connector tool registered. Use tool_call with parameters: { board_id, start_item_id, end_item_id, stroke_color?, stroke_width?, start_cap?, end_cap?, captions? }".to_string();
         Ok(CallToolResult::success(vec![Content::text(message)]))
     }
 }
