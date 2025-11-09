@@ -9,13 +9,13 @@
 - [x] VIS2: User creates shapes for organizational structure ✅ 2025-11-10
 - [x] VIS3: User creates text elements on boards ✅ 2025-11-10
 - [x] VIS4: User creates frames for grouping related content ✅ 2025-11-10
+- [x] ITEM1: User lists board items filtered by type ✅ 2025-11-10
+- [x] ITEM2: User updates item properties dynamically ✅ 2025-11-10
+- [x] ITEM3: User removes items from boards ✅ 2025-11-10
+- [x] REL1: User connects items with styled arrows/lines ✅ 2025-11-10
+- [x] REL2: User adds captions to connectors ✅ 2025-11-10
+- [x] BULK1: User creates multiple items efficiently (vs individual API calls) ✅ 2025-11-10
 
 ## In Progress
 
 ## Planned
-- [ ] ITEM1: User lists board items filtered by type
-- [ ] ITEM2: User updates item properties dynamically
-- [ ] ITEM3: User removes items from boards
-- [ ] REL1: User connects items with styled arrows/lines
-- [ ] REL2: User adds captions to connectors
-- [ ] BULK1: User creates multiple items efficiently (vs individual API calls)
