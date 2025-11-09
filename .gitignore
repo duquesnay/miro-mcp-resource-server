@@ -1,0 +1,48 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Secrets (CRITICAL - never commit)
+secrets/
+*.key
+*.pem
+*.secret
+
+# Claude
+.claude/settings.local.json
+.claude/projects/
+
+# Logs
+*.log
+logs/
+
+# Test artifacts
+/test-results/
+/coverage/
+
+# Build artifacts
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Temporary files
+tmp/
+temp/
