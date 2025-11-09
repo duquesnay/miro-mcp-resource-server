@@ -2,7 +2,8 @@ use crate::auth::{AuthError, MiroOAuthClient, TokenStore};
 use crate::miro::types::{
     Board, BoardsResponse, CreateBoardRequest, CreateBoardResponse, CreateFrameRequest,
     CreateShapeRequest, CreateStickyNoteRequest, CreateTextRequest, FrameResponse, Geometry,
-    Position, ShapeResponse, StickyNoteResponse, TextResponse,
+    Item, ItemsResponse, Position, ShapeResponse, StickyNoteResponse, TextResponse,
+    UpdateItemRequest,
 };
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -261,6 +262,56 @@ impl MiroClient {
         Ok(frame)
     }
 
+    /// List items on a board with optional type filtering
+    pub async fn list_items(
+        &self,
+        board_id: &str,
+        item_types: Option<Vec<&str>>,
+    ) -> Result<Vec<Item>, MiroError> {
+        let mut path = format!("/boards/{}/items", board_id);
+
+        // Add type filter if provided
+        if let Some(types) = item_types {
+            let type_filter = types.join(",");
+            path.push_str(&format!("?type={}", type_filter));
+        }
+
+        let response = self.get(&path).await?;
+        let items_response: ItemsResponse = serde_json::from_value(response)?;
+        Ok(items_response.data)
+    }
+
+    /// Update item properties (position, content, style, geometry)
+    pub async fn update_item(
+        &self,
+        board_id: &str,
+        item_id: &str,
+        position: Option<Position>,
+        data: Option<Value>,
+        style: Option<Value>,
+        geometry: Option<Geometry>,
+    ) -> Result<Item, MiroError> {
+        let request_body = UpdateItemRequest {
+            position,
+            data,
+            style,
+            geometry,
+        };
+
+        let json_body = serde_json::to_value(&request_body)?;
+        let path = format!("/boards/{}/items/{}", board_id, item_id);
+        let response = self.patch(&path, Some(json_body)).await?;
+        let item: Item = serde_json::from_value(response)?;
+        Ok(item)
+    }
+
+    /// Delete an item from a board
+    pub async fn delete_item(&self, board_id: &str, item_id: &str) -> Result<(), MiroError> {
+        let path = format!("/boards/{}/items/{}", board_id, item_id);
+        let _response = self.delete(&path).await?;
+        Ok(())
+    }
+
     /// Make an authenticated request with automatic retry on 401
     async fn request(
         &self,
@@ -441,5 +492,31 @@ mod tests {
 
         let response: FrameResponse = serde_json::from_str(json).unwrap();
         assert_eq!(response.id, "frame-012");
+    }
+
+    #[test]
+    fn test_item_update_request_construction() {
+        let position = Position {
+            x: 150.0,
+            y: 250.0,
+            origin: None,
+        };
+        let geometry = Geometry {
+            width: 300.0,
+            height: Some(200.0),
+        };
+
+        let request = UpdateItemRequest {
+            position: Some(position),
+            data: None,
+            style: None,
+            geometry: Some(geometry),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("150"));
+        assert!(json.contains("250"));
+        assert!(json.contains("300"));
+        assert!(json.contains("200"));
     }
 }

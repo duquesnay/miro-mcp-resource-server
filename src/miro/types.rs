@@ -197,6 +197,43 @@ pub struct FrameResponse {
     pub geometry: Option<Geometry>,
 }
 
+/// Generic item response that can represent any item type
+#[derive(Debug, Clone, Deserialize)]
+pub struct Item {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub item_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<Position>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geometry: Option<Geometry>,
+}
+
+/// Response for list items endpoint
+#[derive(Debug, Deserialize)]
+pub struct ItemsResponse {
+    pub data: Vec<Item>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+/// Request body for updating an item (partial update)
+#[derive(Debug, Serialize)]
+pub struct UpdateItemRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<Position>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geometry: Option<Geometry>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,5 +423,74 @@ mod tests {
         let response: StickyNoteResponse = serde_json::from_str(json).unwrap();
         assert_eq!(response.id, "note-123");
         assert!(response.data.is_some());
+    }
+
+    #[test]
+    fn test_item_deserialization() {
+        let json = r#"{
+            "id": "item-123",
+            "type": "sticky_note",
+            "data": {
+                "content": "<p>Test item</p>",
+                "shape": "square"
+            },
+            "style": {
+                "fillColor": "light_yellow"
+            },
+            "position": {
+                "x": 100.0,
+                "y": 200.0
+            },
+            "geometry": {
+                "width": 200.0
+            }
+        }"#;
+
+        let item: Item = serde_json::from_str(json).unwrap();
+        assert_eq!(item.id, "item-123");
+        assert_eq!(item.item_type, "sticky_note");
+        assert!(item.data.is_some());
+    }
+
+    #[test]
+    fn test_items_response_deserialization() {
+        let json = r#"{
+            "data": [
+                {
+                    "id": "item-1",
+                    "type": "sticky_note"
+                },
+                {
+                    "id": "item-2",
+                    "type": "shape"
+                }
+            ],
+            "cursor": "next-cursor-123"
+        }"#;
+
+        let response: ItemsResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.data.len(), 2);
+        assert_eq!(response.data[0].id, "item-1");
+        assert_eq!(response.data[0].item_type, "sticky_note");
+        assert_eq!(response.cursor, Some("next-cursor-123".to_string()));
+    }
+
+    #[test]
+    fn test_update_item_request_serialization() {
+        let request = UpdateItemRequest {
+            position: Some(Position {
+                x: 150.0,
+                y: 250.0,
+                origin: None,
+            }),
+            data: None,
+            style: None,
+            geometry: None,
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("\"x\":150"));
+        assert!(json.contains("\"y\":250"));
+        assert!(!json.contains("data")); // Should be skipped when None
     }
 }

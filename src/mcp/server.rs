@@ -57,6 +57,34 @@ pub struct CreateFrameParams {
     pub fill_color: Option<String>,
 }
 
+/// Parameters for listing items
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListItemsParams {
+    pub board_id: String,
+    #[serde(default)]
+    pub item_types: Option<String>, // comma-separated types
+}
+
+/// Parameters for updating an item
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateItemParams {
+    pub board_id: String,
+    pub item_id: String,
+    #[serde(default)]
+    pub x: Option<f64>,
+    #[serde(default)]
+    pub y: Option<f64>,
+    #[serde(default)]
+    pub content: Option<String>,
+}
+
+/// Parameters for deleting an item
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeleteItemParams {
+    pub board_id: String,
+    pub item_id: String,
+}
+
 /// MCP server for Miro
 #[derive(Clone)]
 pub struct MiroMcpServer {
@@ -178,6 +206,31 @@ impl MiroMcpServer {
     #[tool(description = "Create a frame on a Miro board to group and organize other elements")]
     async fn create_frame(&self) -> Result<CallToolResult, McpError> {
         let message = "create_frame tool registered. Use tool_call with parameters: { board_id, title, x, y, width, height, fill_color? }".to_string();
+        Ok(CallToolResult::success(vec![Content::text(message)]))
+    }
+
+    /// List items on a board with optional type filtering
+    #[tool(
+        description = "List items on a Miro board with optional filtering by type (frame, sticky_note, shape, text, connector)"
+    )]
+    async fn list_items(&self) -> Result<CallToolResult, McpError> {
+        let message = "list_items tool registered. Use tool_call with parameters: { board_id, item_types? (comma-separated) }".to_string();
+        Ok(CallToolResult::success(vec![Content::text(message)]))
+    }
+
+    /// Update item properties
+    #[tool(
+        description = "Update an item's properties including position, content, and styling"
+    )]
+    async fn update_item(&self) -> Result<CallToolResult, McpError> {
+        let message = "update_item tool registered. Use tool_call with parameters: { board_id, item_id, x?, y?, content? }".to_string();
+        Ok(CallToolResult::success(vec![Content::text(message)]))
+    }
+
+    /// Delete an item from a board
+    #[tool(description = "Delete an item from a Miro board")]
+    async fn delete_item(&self) -> Result<CallToolResult, McpError> {
+        let message = "delete_item tool registered. Use tool_call with parameters: { board_id, item_id }".to_string();
         Ok(CallToolResult::success(vec![Content::text(message)]))
     }
 }
