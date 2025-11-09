@@ -13,6 +13,7 @@ const MIRO_AUTH_URL: &str = "https://miro.com/oauth/authorize";
 const MIRO_TOKEN_URL: &str = "https://api.miro.com/v1/oauth/token";
 
 /// OAuth2 client for Miro authentication
+#[derive(Clone)]
 pub struct MiroOAuthClient {
     client: BasicClient,
     state_manager: Arc<Mutex<OAuthStateManager>>,

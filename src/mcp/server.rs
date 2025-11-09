@@ -1,5 +1,6 @@
-use crate::auth::MiroOAuthClient;
+use crate::auth::{MiroOAuthClient, TokenStore};
 use crate::config::Config;
+use crate::miro::MiroClient;
 use rmcp::{
     handler::server::tool::ToolRouter, model::*, tool, tool_router, ErrorData as McpError,
     ServerHandler,
@@ -11,6 +12,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct MiroMcpServer {
     oauth_client: Arc<MiroOAuthClient>,
+    miro_client: Arc<MiroClient>,
     #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
 }
@@ -20,9 +22,12 @@ impl MiroMcpServer {
     /// Create a new MCP server
     pub fn new(config: &Config) -> Result<Self, Box<dyn std::error::Error>> {
         let oauth_client = Arc::new(MiroOAuthClient::new(config)?);
+        let token_store = TokenStore::new(config.encryption_key)?;
+        let miro_client = Arc::new(MiroClient::new(token_store, (*oauth_client).clone())?);
 
         Ok(Self {
             oauth_client,
+            miro_client,
             tool_router: Self::tool_router(),
         })
     }
@@ -39,6 +44,57 @@ impl MiroMcpServer {
             "Authorization URL: {}\n\nState: {}\n\nInstructions: Open the authorization URL in your browser, authorize the application, and you will be redirected to the callback URL with a code parameter.",
             auth_url,
             csrf_token.secret()
+        );
+
+        Ok(CallToolResult::success(vec![Content::text(message)]))
+    }
+
+    /// List all accessible Miro boards
+    #[tool(description = "List all accessible Miro boards")]
+    async fn list_boards(&self) -> Result<CallToolResult, McpError> {
+        let boards = self
+            .miro_client
+            .list_boards()
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        if boards.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "No boards found.".to_string(),
+            )]));
+        }
+
+        let board_list = boards
+            .iter()
+            .map(|b| {
+                let description = b
+                    .description
+                    .as_ref()
+                    .map(|d| format!(" - {}", d))
+                    .unwrap_or_default();
+                format!("- {} (ID: {}){}", b.name, b.id, description)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let message = format!("Found {} board(s):\n{}", boards.len(), board_list);
+        Ok(CallToolResult::success(vec![Content::text(message)]))
+    }
+
+    /// Create a new Miro board
+    #[tool(description = "Create a new Miro board")]
+    async fn create_board(&self) -> Result<CallToolResult, McpError> {
+        // Note: In actual usage, the tool parameters would be passed from the MCP client
+        // This is a placeholder implementation
+        let board = self
+            .miro_client
+            .create_board("New Board".to_string(), None)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        let message = format!(
+            "Successfully created board: {}\nBoard ID: {}",
+            board.name, board.id
         );
 
         Ok(CallToolResult::success(vec![Content::text(message)]))

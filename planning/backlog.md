@@ -3,12 +3,12 @@
 ## Completed
 - [x] AUTH1: User authenticates with Miro securely via OAuth2 ✅ 2025-11-10
 - [x] AUTH2: System refreshes tokens automatically (vs manual re-auth) ✅ 2025-11-10
+- [x] BOARD1: User lists accessible Miro boards programmatically ✅ 2025-11-10
+- [x] BOARD2: User creates new boards via Claude prompts ✅ 2025-11-10
 
 ## In Progress
 
 ## Planned
-- [ ] BOARD1: User lists accessible Miro boards programmatically
-- [ ] BOARD2: User creates new boards via Claude prompts
 - [ ] VIS1: User creates sticky notes with custom content and styling
 - [ ] VIS2: User creates shapes for organizational structure
 - [ ] VIS3: User creates text elements on boards

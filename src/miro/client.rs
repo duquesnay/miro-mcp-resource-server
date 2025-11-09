@@ -1,4 +1,5 @@
 use crate::auth::{AuthError, MiroOAuthClient, TokenStore};
+use crate::miro::types::{Board, BoardsResponse, CreateBoardRequest, CreateBoardResponse};
 use reqwest::StatusCode;
 use serde_json::Value;
 use std::sync::Arc;
@@ -12,6 +13,9 @@ pub enum MiroError {
 
     #[error("HTTP error: {0}")]
     HttpError(#[from] reqwest::Error),
+
+    #[error("JSON serialization error: {0}")]
+    JsonError(#[from] serde_json::Error),
 
     #[error("API error {status}: {message}")]
     ApiError { status: u16, message: String },
@@ -89,6 +93,31 @@ impl MiroClient {
     /// Make an authenticated DELETE request to Miro API
     pub async fn delete(&self, path: &str) -> Result<Value, MiroError> {
         self.request("DELETE", path, None).await
+    }
+
+    /// List all accessible Miro boards
+    pub async fn list_boards(&self) -> Result<Vec<Board>, MiroError> {
+        let response = self.get("/boards").await?;
+        let boards_response: BoardsResponse = serde_json::from_value(response)?;
+        Ok(boards_response.data)
+    }
+
+    /// Create a new Miro board
+    pub async fn create_board(
+        &self,
+        name: String,
+        description: Option<String>,
+    ) -> Result<Board, MiroError> {
+        let request_body = CreateBoardRequest { name, description };
+        let json_body = serde_json::to_value(&request_body)?;
+        let response = self.post("/boards", Some(json_body)).await?;
+        let board: CreateBoardResponse = serde_json::from_value(response)?;
+        Ok(Board {
+            id: board.id,
+            name: board.name,
+            description: board.description,
+            created_at: board.created_at,
+        })
     }
 
     /// Make an authenticated request with automatic retry on 401
