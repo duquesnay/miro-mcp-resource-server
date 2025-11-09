@@ -103,6 +103,13 @@ pub struct CreateConnectorParams {
     pub captions: Option<Vec<serde_json::Value>>,
 }
 
+/// Parameters for bulk creating items
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BulkCreateItemsParams {
+    pub board_id: String,
+    pub items: Vec<serde_json::Value>, // Array of item definitions (type-specific)
+}
+
 /// MCP server for Miro
 #[derive(Clone)]
 pub struct MiroMcpServer {
@@ -237,9 +244,7 @@ impl MiroMcpServer {
     }
 
     /// Update item properties
-    #[tool(
-        description = "Update an item's properties including position, content, and styling"
-    )]
+    #[tool(description = "Update an item's properties including position, content, and styling")]
     async fn update_item(&self) -> Result<CallToolResult, McpError> {
         let message = "update_item tool registered. Use tool_call with parameters: { board_id, item_id, x?, y?, content? }".to_string();
         Ok(CallToolResult::success(vec![Content::text(message)]))
@@ -248,7 +253,9 @@ impl MiroMcpServer {
     /// Delete an item from a board
     #[tool(description = "Delete an item from a Miro board")]
     async fn delete_item(&self) -> Result<CallToolResult, McpError> {
-        let message = "delete_item tool registered. Use tool_call with parameters: { board_id, item_id }".to_string();
+        let message =
+            "delete_item tool registered. Use tool_call with parameters: { board_id, item_id }"
+                .to_string();
         Ok(CallToolResult::success(vec![Content::text(message)]))
     }
 
@@ -258,6 +265,15 @@ impl MiroMcpServer {
     )]
     async fn create_connector(&self) -> Result<CallToolResult, McpError> {
         let message = "create_connector tool registered. Use tool_call with parameters: { board_id, start_item_id, end_item_id, stroke_color?, stroke_width?, start_cap?, end_cap?, captions? }".to_string();
+        Ok(CallToolResult::success(vec![Content::text(message)]))
+    }
+
+    /// Bulk create multiple items in a single transaction
+    #[tool(
+        description = "Create multiple items efficiently in a single API call (max 20 items per request). Accepts array of mixed item types (sticky_note, shape, text, frame) with their respective configurations."
+    )]
+    async fn bulk_create_items(&self) -> Result<CallToolResult, McpError> {
+        let message = "bulk_create_items tool registered. Use tool_call with parameters: { board_id, items: [{ type: 'sticky_note'|'shape'|'text'|'frame', data: {...}, position: {...}, geometry: {...}, style?: {...} }, ...] }. Maximum 20 items per call.".to_string();
         Ok(CallToolResult::success(vec![Content::text(message)]))
     }
 }

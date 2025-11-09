@@ -282,6 +282,59 @@ pub struct UpdateItemRequest {
     pub geometry: Option<Geometry>,
 }
 
+/// Item definition for bulk creation - supports all item types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BulkItemRequest {
+    /// Sticky note item
+    StickyNote {
+        #[serde(rename = "type")]
+        item_type: String, // must be "sticky_note"
+        data: StickyNoteData,
+        style: StickyNoteStyle,
+        position: Position,
+        geometry: Geometry,
+    },
+    /// Shape item
+    Shape {
+        #[serde(rename = "type")]
+        item_type: String, // must be "shape"
+        data: ShapeData,
+        style: ShapeStyle,
+        position: Position,
+        geometry: Geometry,
+    },
+    /// Text item
+    Text {
+        #[serde(rename = "type")]
+        item_type: String, // must be "text"
+        data: TextData,
+        position: Position,
+        geometry: Geometry,
+    },
+    /// Frame item
+    Frame {
+        #[serde(rename = "type")]
+        item_type: String, // must be "frame"
+        data: FrameData,
+        style: FrameStyle,
+        position: Position,
+        geometry: Geometry,
+    },
+}
+
+/// Request body for bulk creating items
+#[derive(Debug, Serialize)]
+pub struct BulkCreateRequest {
+    pub items: Vec<BulkItemRequest>,
+}
+
+/// Response for bulk item creation
+#[derive(Debug, Deserialize)]
+pub struct BulkCreateResponse {
+    pub data: Vec<Item>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -606,12 +659,10 @@ mod tests {
                 start_cap: Some("circle".to_string()),
                 end_cap: Some("arrow".to_string()),
             }),
-            captions: Some(vec![
-                Caption {
-                    content: "Depends on".to_string(),
-                    position: Some(0.5),
-                },
-            ]),
+            captions: Some(vec![Caption {
+                content: "Depends on".to_string(),
+                position: Some(0.5),
+            }]),
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -663,5 +714,185 @@ mod tests {
         assert!(response.style.is_some());
         assert!(response.captions.is_some());
         assert_eq!(response.captions.unwrap()[0].content, "connects");
+    }
+
+    #[test]
+    fn test_bulk_item_request_sticky_note_serialization() {
+        let item = BulkItemRequest::StickyNote {
+            item_type: "sticky_note".to_string(),
+            data: StickyNoteData {
+                content: "<p>Test note</p>".to_string(),
+                shape: Some("square".to_string()),
+            },
+            style: StickyNoteStyle {
+                fill_color: "light_yellow".to_string(),
+            },
+            position: Position {
+                x: 100.0,
+                y: 200.0,
+                origin: Some("center".to_string()),
+            },
+            geometry: Geometry {
+                width: 200.0,
+                height: None,
+            },
+        };
+
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"type\":\"sticky_note\""));
+        assert!(json.contains("Test note"));
+        assert!(json.contains("light_yellow"));
+    }
+
+    #[test]
+    fn test_bulk_item_request_shape_serialization() {
+        let item = BulkItemRequest::Shape {
+            item_type: "shape".to_string(),
+            data: ShapeData {
+                content: Some("<p>Shape</p>".to_string()),
+                shape: "rectangle".to_string(),
+            },
+            style: ShapeStyle {
+                fill_color: "light_blue".to_string(),
+                border_color: Some("blue".to_string()),
+                border_width: Some("2".to_string()),
+            },
+            position: Position {
+                x: 0.0,
+                y: 0.0,
+                origin: None,
+            },
+            geometry: Geometry {
+                width: 300.0,
+                height: Some(150.0),
+            },
+        };
+
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"type\":\"shape\""));
+        assert!(json.contains("rectangle"));
+        assert!(json.contains("light_blue"));
+    }
+
+    #[test]
+    fn test_bulk_item_request_text_serialization() {
+        let item = BulkItemRequest::Text {
+            item_type: "text".to_string(),
+            data: TextData {
+                content: "Plain text".to_string(),
+            },
+            position: Position {
+                x: 50.0,
+                y: 75.0,
+                origin: None,
+            },
+            geometry: Geometry {
+                width: 200.0,
+                height: None,
+            },
+        };
+
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"type\":\"text\""));
+        assert!(json.contains("Plain text"));
+    }
+
+    #[test]
+    fn test_bulk_item_request_frame_serialization() {
+        let item = BulkItemRequest::Frame {
+            item_type: "frame".to_string(),
+            data: FrameData {
+                title: "Frame Title".to_string(),
+                frame_type: "frame".to_string(),
+            },
+            style: FrameStyle {
+                fill_color: "light_gray".to_string(),
+            },
+            position: Position {
+                x: 0.0,
+                y: 0.0,
+                origin: None,
+            },
+            geometry: Geometry {
+                width: 1000.0,
+                height: Some(800.0),
+            },
+        };
+
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"type\":\"frame\""));
+        assert!(json.contains("Frame Title"));
+        assert!(json.contains("light_gray"));
+    }
+
+    #[test]
+    fn test_bulk_create_request_serialization() {
+        let items = vec![
+            BulkItemRequest::Text {
+                item_type: "text".to_string(),
+                data: TextData {
+                    content: "Item 1".to_string(),
+                },
+                position: Position {
+                    x: 0.0,
+                    y: 0.0,
+                    origin: None,
+                },
+                geometry: Geometry {
+                    width: 100.0,
+                    height: None,
+                },
+            },
+            BulkItemRequest::Text {
+                item_type: "text".to_string(),
+                data: TextData {
+                    content: "Item 2".to_string(),
+                },
+                position: Position {
+                    x: 100.0,
+                    y: 0.0,
+                    origin: None,
+                },
+                geometry: Geometry {
+                    width: 100.0,
+                    height: None,
+                },
+            },
+        ];
+
+        let request = BulkCreateRequest { items };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("\"items\""));
+        assert!(json.contains("Item 1"));
+        assert!(json.contains("Item 2"));
+    }
+
+    #[test]
+    fn test_bulk_create_response_deserialization() {
+        let json = r#"{
+            "data": [
+                {
+                    "id": "item-1",
+                    "type": "text",
+                    "data": {
+                        "content": "Item 1"
+                    }
+                },
+                {
+                    "id": "item-2",
+                    "type": "text",
+                    "data": {
+                        "content": "Item 2"
+                    }
+                }
+            ]
+        }"#;
+
+        let response: BulkCreateResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.data.len(), 2);
+        assert_eq!(response.data[0].id, "item-1");
+        assert_eq!(response.data[0].item_type, "text");
+        assert_eq!(response.data[1].id, "item-2");
+        assert_eq!(response.data[1].item_type, "text");
     }
 }

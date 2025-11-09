@@ -1,9 +1,10 @@
 use crate::auth::{AuthError, MiroOAuthClient, TokenStore};
 use crate::miro::types::{
-    Board, BoardsResponse, Caption, ConnectorResponse, ConnectorStyle, CreateBoardRequest,
-    CreateBoardResponse, CreateConnectorRequest, CreateFrameRequest, CreateShapeRequest,
-    CreateStickyNoteRequest, CreateTextRequest, FrameResponse, Geometry, Item, ItemsResponse,
-    Position, ShapeResponse, StickyNoteResponse, TextResponse, UpdateItemRequest,
+    Board, BoardsResponse, BulkCreateRequest, BulkCreateResponse, Caption, ConnectorResponse,
+    ConnectorStyle, CreateBoardRequest, CreateBoardResponse, CreateConnectorRequest,
+    CreateFrameRequest, CreateShapeRequest, CreateStickyNoteRequest, CreateTextRequest,
+    FrameResponse, Geometry, Item, ItemsResponse, Position, ShapeResponse, StickyNoteResponse,
+    TextResponse, UpdateItemRequest,
 };
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -30,6 +31,9 @@ pub enum MiroError {
 
     #[error("Rate limit exceeded")]
     RateLimitExceeded,
+
+    #[error("Invalid bulk operation: {0}")]
+    BulkOperationError(String),
 }
 
 /// Miro API client with automatic token refresh
@@ -354,6 +358,35 @@ impl MiroClient {
         Ok(())
     }
 
+    /// Bulk create multiple items in a single API call (max 20 items per request)
+    pub async fn bulk_create_items(
+        &self,
+        board_id: &str,
+        items: Vec<crate::miro::types::BulkItemRequest>,
+    ) -> Result<Vec<Item>, MiroError> {
+        // Validate item count (API limit is 20 items per request)
+        const MAX_BULK_ITEMS: usize = 20;
+        if items.is_empty() {
+            return Err(MiroError::BulkOperationError(
+                "Items array cannot be empty".to_string(),
+            ));
+        }
+        if items.len() > MAX_BULK_ITEMS {
+            return Err(MiroError::BulkOperationError(format!(
+                "Too many items in bulk request: {} (maximum is {})",
+                items.len(),
+                MAX_BULK_ITEMS
+            )));
+        }
+
+        let request_body = BulkCreateRequest { items };
+        let json_body = serde_json::to_value(&request_body)?;
+        let path = format!("/boards/{}/items", board_id);
+        let response = self.post(&path, Some(json_body)).await?;
+        let bulk_response: BulkCreateResponse = serde_json::from_value(response)?;
+        Ok(bulk_response.data)
+    }
+
     /// Make an authenticated request with automatic retry on 401
     async fn request(
         &self,
@@ -601,5 +634,70 @@ mod tests {
         assert_eq!(response.id, "connector-999");
         assert_eq!(response.start_item, Some("node-a".to_string()));
         assert_eq!(response.end_item, Some("node-b".to_string()));
+    }
+
+    #[test]
+    fn test_bulk_create_validation_empty_items() {
+        let config = get_test_config();
+        let token_store = TokenStore::new(config.encryption_key).unwrap();
+        let oauth_client = MiroOAuthClient::new(&config).unwrap();
+        let client = MiroClient::new(token_store, oauth_client).unwrap();
+
+        // Test validation: empty items array should fail
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(async { client.bulk_create_items("board-123", vec![]).await });
+
+        assert!(result.is_err());
+        match result {
+            Err(MiroError::BulkOperationError(msg)) => {
+                assert!(msg.contains("cannot be empty"));
+            }
+            _ => panic!("Expected BulkOperationError"),
+        }
+    }
+
+    #[test]
+    fn test_bulk_create_validation_too_many_items() {
+        let config = get_test_config();
+        let token_store = TokenStore::new(config.encryption_key).unwrap();
+        let oauth_client = MiroOAuthClient::new(&config).unwrap();
+        let client = MiroClient::new(token_store, oauth_client).unwrap();
+
+        // Create 21 items (exceeds limit of 20)
+        let items: Vec<_> = (0..21)
+            .map(|i| {
+                use crate::miro::types::{BulkItemRequest, Geometry, Position, TextData};
+
+                BulkItemRequest::Text {
+                    item_type: "text".to_string(),
+                    data: TextData {
+                        content: format!("Text {}", i),
+                    },
+                    position: Position {
+                        x: i as f64 * 100.0,
+                        y: 0.0,
+                        origin: None,
+                    },
+                    geometry: Geometry {
+                        width: 100.0,
+                        height: None,
+                    },
+                }
+            })
+            .collect();
+
+        // Test validation: >20 items should fail
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(async { client.bulk_create_items("board-123", items).await });
+
+        assert!(result.is_err());
+        match result {
+            Err(MiroError::BulkOperationError(msg)) => {
+                assert!(msg.contains("Too many items"));
+                assert!(msg.contains("21"));
+                assert!(msg.contains("20"));
+            }
+            _ => panic!("Expected BulkOperationError"),
+        }
     }
 }
