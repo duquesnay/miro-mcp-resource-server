@@ -26,6 +26,8 @@
 - [x] TECH4: System validates sort_by values explicitly (vs silent failures) ✅ 2025-11-10
 - [x] DEPLOY1: Developer deploys to Scaleway in <5min (vs manual local setup) ✅ 2025-11-10
 - [x] CI1: Developer receives automated test feedback on every push (vs manual local testing) ✅ 2025-11-10
+- [x] TECH3: Developer adds complex items via builder pattern (vs 9-parameter functions) ✅ 2025-11-10
+- [x] TECH5: Developer adds new tools without modifying routing (vs hardcoded match) ✅ 2025-11-10
 
 ## In Progress
 
@@ -34,5 +36,3 @@
 - [🚫] LAYER1.2: User manages organizational layers (visibility, locking) ⚠️ UI-only feature
 
 ## Planned
-- [ ] TECH3: Developer adds complex items via builder pattern (vs 9-parameter functions)
-- [ ] TECH5: Developer adds new tools without modifying routing (vs hardcoded match)
