@@ -95,13 +95,21 @@ async fn bearer_auth_middleware_adr002(
     State(state): State<AppStateADR002>,
     mut request: Request<axum::body::Body>,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, Response> {
     // Extract Bearer token from Authorization header
     let token = match extract_bearer_token(request.headers()) {
         Ok(token) => token,
         Err(e) => {
             warn!("Bearer token extraction failed: {}", e);
-            return Err(StatusCode::UNAUTHORIZED);
+            // Return 401 with WWW-Authenticate header per RFC 6750
+            return Ok((
+                StatusCode::UNAUTHORIZED,
+                [(
+                    axum::http::header::WWW_AUTHENTICATE,
+                    "Bearer realm=\"miro-mcp-server\"",
+                )],
+            )
+                .into_response());
         }
     };
 
@@ -110,7 +118,15 @@ async fn bearer_auth_middleware_adr002(
         Ok(user_info) => user_info,
         Err(e) => {
             warn!("Token validation failed: {}", e);
-            return Err(StatusCode::UNAUTHORIZED);
+            // Return 401 with WWW-Authenticate header per RFC 6750
+            return Ok((
+                StatusCode::UNAUTHORIZED,
+                [(
+                    axum::http::header::WWW_AUTHENTICATE,
+                    "Bearer realm=\"miro-mcp-server\", error=\"invalid_token\"",
+                )],
+            )
+                .into_response());
         }
     };
 
