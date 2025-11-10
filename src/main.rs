@@ -8,6 +8,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load .env file if present (for local development)
+    // Silently ignore if .env file doesn't exist (production uses env vars directly)
+    let _ = dotenvy::dotenv();
+
     // Initialize tracing - write to stderr to keep stdout clean for MCP JSON protocol
     tracing_subscriber::registry()
         .with(
