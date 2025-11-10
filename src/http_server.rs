@@ -280,8 +280,9 @@ async fn bearer_auth_middleware(
         }
     };
 
-    // Store user_info in request extensions for handlers to access
-    request.extensions_mut().insert(user_info);
+    // Store both token and user_info in request extensions for handlers to access
+    request.extensions_mut().insert(std::sync::Arc::new(token));
+    request.extensions_mut().insert(std::sync::Arc::new(user_info));
 
     // Continue to handler
     Ok(next.run(request).await)
@@ -310,8 +311,8 @@ pub fn create_app(
 
     // Protected routes (require Bearer token validation)
     let protected_routes = Router::new()
-        // MCP endpoints will be added here later
-        // For now, this is a placeholder for future routes
+        .route("/mcp/list_boards", axum::routing::post(crate::mcp::tools::list_boards))
+        .route("/mcp/get_board/:board_id", axum::routing::post(crate::mcp::tools::get_board))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             bearer_auth_middleware,
