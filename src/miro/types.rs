@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+/// Represents a parent frame reference
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Parent {
+    pub id: String,
+}
+
 /// Represents a Miro board
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Board {
@@ -75,6 +81,8 @@ pub struct CreateStickyNoteRequest {
     pub style: StickyNoteStyle,
     pub position: Position,
     pub geometry: Geometry,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Parent>,
 }
 
 /// Response for sticky note creation
@@ -117,6 +125,8 @@ pub struct CreateShapeRequest {
     pub style: ShapeStyle,
     pub position: Position,
     pub geometry: Geometry,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Parent>,
 }
 
 /// Response for shape creation
@@ -145,6 +155,8 @@ pub struct CreateTextRequest {
     pub data: TextData,
     pub position: Position,
     pub geometry: Geometry,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Parent>,
 }
 
 /// Response for text creation
@@ -181,6 +193,8 @@ pub struct CreateFrameRequest {
     pub style: FrameStyle,
     pub position: Position,
     pub geometry: Geometry,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Parent>,
 }
 
 /// Response for frame creation
@@ -246,7 +260,7 @@ pub struct ConnectorResponse {
 }
 
 /// Generic item response that can represent any item type
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
     pub id: String,
     #[serde(rename = "type")]
@@ -259,6 +273,12 @@ pub struct Item {
     pub position: Option<Position>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub geometry: Option<Geometry>,
+    #[serde(rename = "createdAt", skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(rename = "modifiedAt", skip_serializing_if = "Option::is_none")]
+    pub modified_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Parent>,
 }
 
 /// Response for list items endpoint
@@ -280,6 +300,8 @@ pub struct UpdateItemRequest {
     pub style: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub geometry: Option<Geometry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Parent>,
 }
 
 /// Item definition for bulk creation - supports all item types
@@ -294,6 +316,8 @@ pub enum BulkItemRequest {
         style: StickyNoteStyle,
         position: Position,
         geometry: Geometry,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parent: Option<Parent>,
     },
     /// Shape item
     Shape {
@@ -303,6 +327,8 @@ pub enum BulkItemRequest {
         style: ShapeStyle,
         position: Position,
         geometry: Geometry,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parent: Option<Parent>,
     },
     /// Text item
     Text {
@@ -311,6 +337,8 @@ pub enum BulkItemRequest {
         data: TextData,
         position: Position,
         geometry: Geometry,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parent: Option<Parent>,
     },
     /// Frame item
     Frame {
@@ -320,6 +348,8 @@ pub enum BulkItemRequest {
         style: FrameStyle,
         position: Position,
         geometry: Geometry,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parent: Option<Parent>,
     },
 }
 
@@ -411,6 +441,7 @@ mod tests {
                 width: 200.0,
                 height: None,
             },
+            parent: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -441,6 +472,7 @@ mod tests {
                 width: 300.0,
                 height: Some(150.0),
             },
+            parent: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -465,6 +497,7 @@ mod tests {
                 width: 200.0,
                 height: None,
             },
+            parent: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -491,6 +524,7 @@ mod tests {
                 width: 1000.0,
                 height: Some(800.0),
             },
+            parent: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -544,13 +578,17 @@ mod tests {
             },
             "geometry": {
                 "width": 200.0
-            }
+            },
+            "createdAt": "2025-01-01T10:00:00Z",
+            "modifiedAt": "2025-01-02T14:30:00Z"
         }"#;
 
         let item: Item = serde_json::from_str(json).unwrap();
         assert_eq!(item.id, "item-123");
         assert_eq!(item.item_type, "sticky_note");
         assert!(item.data.is_some());
+        assert_eq!(item.created_at, Some("2025-01-01T10:00:00Z".to_string()));
+        assert_eq!(item.modified_at, Some("2025-01-02T14:30:00Z".to_string()));
     }
 
     #[test]
@@ -587,6 +625,7 @@ mod tests {
             data: None,
             style: None,
             geometry: None,
+            parent: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -736,6 +775,7 @@ mod tests {
                 width: 200.0,
                 height: None,
             },
+            parent: None,
         };
 
         let json = serde_json::to_string(&item).unwrap();
@@ -766,6 +806,7 @@ mod tests {
                 width: 300.0,
                 height: Some(150.0),
             },
+            parent: None,
         };
 
         let json = serde_json::to_string(&item).unwrap();
@@ -790,6 +831,7 @@ mod tests {
                 width: 200.0,
                 height: None,
             },
+            parent: None,
         };
 
         let json = serde_json::to_string(&item).unwrap();
@@ -817,6 +859,7 @@ mod tests {
                 width: 1000.0,
                 height: Some(800.0),
             },
+            parent: None,
         };
 
         let json = serde_json::to_string(&item).unwrap();
@@ -842,6 +885,7 @@ mod tests {
                     width: 100.0,
                     height: None,
                 },
+                parent: None,
             },
             BulkItemRequest::Text {
                 item_type: "text".to_string(),
@@ -857,6 +901,7 @@ mod tests {
                     width: 100.0,
                     height: None,
                 },
+                parent: None,
             },
         ];
 
@@ -894,5 +939,91 @@ mod tests {
         assert_eq!(response.data[0].item_type, "text");
         assert_eq!(response.data[1].id, "item-2");
         assert_eq!(response.data[1].item_type, "text");
+    }
+
+    #[test]
+    fn test_item_sorting_by_created_at() {
+        // Create items with different creation times
+        let json_1 = r#"{
+            "id": "item-1",
+            "type": "sticky_note",
+            "createdAt": "2025-01-01T10:00:00Z",
+            "modifiedAt": "2025-01-02T14:30:00Z"
+        }"#;
+
+        let json_2 = r#"{
+            "id": "item-2",
+            "type": "sticky_note",
+            "createdAt": "2025-01-01T09:00:00Z",
+            "modifiedAt": "2025-01-02T13:30:00Z"
+        }"#;
+
+        let json_3 = r#"{
+            "id": "item-3",
+            "type": "sticky_note",
+            "createdAt": "2025-01-01T11:00:00Z",
+            "modifiedAt": "2025-01-02T15:30:00Z"
+        }"#;
+
+        let mut items: Vec<Item> = vec![
+            serde_json::from_str(json_1).unwrap(),
+            serde_json::from_str(json_2).unwrap(),
+            serde_json::from_str(json_3).unwrap(),
+        ];
+
+        // Sort by created_at (oldest to newest)
+        items.sort_by(|a, b| {
+            let a_time = a.created_at.as_deref().unwrap_or("");
+            let b_time = b.created_at.as_deref().unwrap_or("");
+            a_time.cmp(b_time)
+        });
+
+        // Verify order is oldest to newest
+        assert_eq!(items[0].id, "item-2"); // 09:00
+        assert_eq!(items[1].id, "item-1"); // 10:00
+        assert_eq!(items[2].id, "item-3"); // 11:00
+    }
+
+    #[test]
+    fn test_item_sorting_by_modified_at() {
+        // Create items with different modification times
+        let json_1 = r#"{
+            "id": "item-1",
+            "type": "sticky_note",
+            "createdAt": "2025-01-01T10:00:00Z",
+            "modifiedAt": "2025-01-02T14:30:00Z"
+        }"#;
+
+        let json_2 = r#"{
+            "id": "item-2",
+            "type": "sticky_note",
+            "createdAt": "2025-01-01T09:00:00Z",
+            "modifiedAt": "2025-01-02T13:30:00Z"
+        }"#;
+
+        let json_3 = r#"{
+            "id": "item-3",
+            "type": "sticky_note",
+            "createdAt": "2025-01-01T11:00:00Z",
+            "modifiedAt": "2025-01-02T15:30:00Z"
+        }"#;
+
+        let mut items: Vec<Item> = vec![
+            serde_json::from_str(json_1).unwrap(),
+            serde_json::from_str(json_2).unwrap(),
+            serde_json::from_str(json_3).unwrap(),
+        ];
+
+        // Sort by modified_at (oldest to newest)
+        items.sort_by(|a, b| {
+            let a_time = a.modified_at.as_deref().unwrap_or("");
+            let b_time = b.modified_at.as_deref().unwrap_or("");
+            a_time.cmp(b_time)
+        });
+
+        // Verify order is oldest to newest
+        assert_eq!(items[0].id, "item-2"); // 13:30
+        assert_eq!(items[1].id, "item-1"); // 14:30
+        assert_eq!(items[2].id, "item-3"); // 15:30
     }
 }

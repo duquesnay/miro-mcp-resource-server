@@ -17,6 +17,8 @@ pub struct CreateStickyNoteParams {
     pub y: f64,
     #[serde(default)]
     pub color: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
 }
 
 /// Parameters for creating a shape
@@ -31,6 +33,8 @@ pub struct CreateShapeParams {
     pub height: f64,
     #[serde(default)]
     pub content: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
 }
 
 /// Parameters for creating text
@@ -41,6 +45,8 @@ pub struct CreateTextParams {
     pub x: f64,
     pub y: f64,
     pub width: f64,
+    #[serde(default)]
+    pub parent_id: Option<String>,
 }
 
 /// Parameters for creating a frame
@@ -54,6 +60,8 @@ pub struct CreateFrameParams {
     pub height: f64,
     #[serde(default)]
     pub fill_color: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
 }
 
 /// Parameters for listing items
@@ -62,6 +70,10 @@ pub struct ListItemsParams {
     pub board_id: String,
     #[serde(default)]
     pub item_types: Option<String>, // comma-separated types
+    #[serde(default)]
+    pub sort_by: Option<String>, // "created_at" or "modified_at"
+    #[serde(default)]
+    pub parent_id: Option<String>, // filter by parent frame ID
 }
 
 /// Parameters for updating an item
@@ -75,6 +87,8 @@ pub struct UpdateItemParams {
     pub y: Option<f64>,
     #[serde(default)]
     pub content: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
 }
 
 /// Parameters for deleting an item
@@ -203,49 +217,104 @@ impl MiroMcpServer {
 
     /// Create a sticky note on a board
     #[tool(
-        description = "Create a sticky note on a Miro board with customizable content, position, and color"
+        description = "Create a sticky note on a Miro board with customizable content, position, color, and optional parent frame"
     )]
     async fn create_sticky_note(&self) -> Result<CallToolResult, McpError> {
-        let message = "create_sticky_note tool registered. Use tool_call with parameters: { board_id, content, x, y, color? }".to_string();
+        let message = "create_sticky_note tool registered. Use tool_call with parameters: { board_id, content, x, y, color?, parent_id? }".to_string();
         Ok(CallToolResult::success(vec![Content::text(message)]))
     }
 
     /// Create a shape on a board
     #[tool(
-        description = "Create a shape (rectangle, circle, triangle, etc.) on a Miro board with custom styling"
+        description = "Create a shape (rectangle, circle, triangle, etc.) on a Miro board with custom styling and optional parent frame"
     )]
     async fn create_shape(&self) -> Result<CallToolResult, McpError> {
-        let message = "create_shape tool registered. Use tool_call with parameters: { board_id, shape_type, fill_color, x, y, width, height, content? }".to_string();
+        let message = "create_shape tool registered. Use tool_call with parameters: { board_id, shape_type, fill_color, x, y, width, height, content?, parent_id? }".to_string();
         Ok(CallToolResult::success(vec![Content::text(message)]))
     }
 
     /// Create text on a board
-    #[tool(description = "Create a text element on a Miro board")]
+    #[tool(description = "Create a text element on a Miro board with optional parent frame")]
     async fn create_text(&self) -> Result<CallToolResult, McpError> {
-        let message = "create_text tool registered. Use tool_call with parameters: { board_id, content, x, y, width }".to_string();
+        let message = "create_text tool registered. Use tool_call with parameters: { board_id, content, x, y, width, parent_id? }".to_string();
         Ok(CallToolResult::success(vec![Content::text(message)]))
     }
 
     /// Create a frame on a board
-    #[tool(description = "Create a frame on a Miro board to group and organize other elements")]
+    #[tool(
+        description = "Create a frame on a Miro board to group and organize other elements, with optional parent frame"
+    )]
     async fn create_frame(&self) -> Result<CallToolResult, McpError> {
-        let message = "create_frame tool registered. Use tool_call with parameters: { board_id, title, x, y, width, height, fill_color? }".to_string();
+        let message = "create_frame tool registered. Use tool_call with parameters: { board_id, title, x, y, width, height, fill_color?, parent_id? }".to_string();
         Ok(CallToolResult::success(vec![Content::text(message)]))
     }
 
-    /// List items on a board with optional type filtering
+    /// List items on a board with optional type filtering, parent filtering, and sorting
     #[tool(
-        description = "List items on a Miro board with optional filtering by type (frame, sticky_note, shape, text, connector)"
+        description = "List items on a Miro board with optional filtering by type (frame, sticky_note, shape, text, connector), parent frame, and sorting by creation/modification time for layer awareness"
     )]
     async fn list_items(&self) -> Result<CallToolResult, McpError> {
-        let message = "list_items tool registered. Use tool_call with parameters: { board_id, item_types? (comma-separated) }".to_string();
+        let message = "list_items tool registered. Use tool_call with parameters: { board_id, item_types? (comma-separated), parent_id?, sort_by? (created_at|modified_at) }".to_string();
         Ok(CallToolResult::success(vec![Content::text(message)]))
+    }
+
+    /// Internal implementation of list_items with parameter support
+    async fn list_items_with_params(
+        &self,
+        params: ListItemsParams,
+    ) -> Result<CallToolResult, McpError> {
+        let item_types = params
+            .item_types
+            .as_ref()
+            .map(|types| types.split(',').map(|s| s.trim()).collect::<Vec<_>>());
+
+        let mut items = self
+            .miro_client
+            .list_items(&params.board_id, item_types, params.parent_id.as_deref())
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        // Apply sorting if specified
+        if let Some(sort_by) = params.sort_by {
+            match sort_by.as_str() {
+                "created_at" => {
+                    items.sort_by(|a, b| {
+                        let a_time = a.created_at.as_deref().unwrap_or("");
+                        let b_time = b.created_at.as_deref().unwrap_or("");
+                        a_time.cmp(b_time)
+                    });
+                }
+                "modified_at" => {
+                    items.sort_by(|a, b| {
+                        let a_time = a.modified_at.as_deref().unwrap_or("");
+                        let b_time = b.modified_at.as_deref().unwrap_or("");
+                        a_time.cmp(b_time)
+                    });
+                }
+                _ => {
+                    // Invalid sort_by value - ignore and return unsorted
+                }
+            }
+        }
+
+        if items.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "No items found on this board.".to_string(),
+            )]));
+        }
+
+        let items_json = serde_json::to_string_pretty(&items)
+            .unwrap_or_else(|_| "Failed to serialize items".to_string());
+
+        Ok(CallToolResult::success(vec![Content::text(items_json)]))
     }
 
     /// Update item properties
-    #[tool(description = "Update an item's properties including position, content, and styling")]
+    #[tool(
+        description = "Update an item's properties including position, content, styling, and parent frame"
+    )]
     async fn update_item(&self) -> Result<CallToolResult, McpError> {
-        let message = "update_item tool registered. Use tool_call with parameters: { board_id, item_id, x?, y?, content? }".to_string();
+        let message = "update_item tool registered. Use tool_call with parameters: { board_id, item_id, x?, y?, content?, parent_id? }".to_string();
         Ok(CallToolResult::success(vec![Content::text(message)]))
     }
 
@@ -322,7 +391,16 @@ impl ServerHandler for MiroMcpServer {
             "create_shape" => self.create_shape().await,
             "create_text" => self.create_text().await,
             "create_frame" => self.create_frame().await,
-            "list_items" => self.list_items().await,
+            "list_items" => {
+                // Parse list_items parameters from the request
+                let args_value =
+                    serde_json::Value::Object(params.arguments.clone().unwrap_or_default());
+                let list_params: ListItemsParams =
+                    serde_json::from_value(args_value).map_err(|e| {
+                        McpError::internal_error(format!("Invalid parameters: {}", e), None)
+                    })?;
+                self.list_items_with_params(list_params).await
+            }
             "update_item" => self.update_item().await,
             "delete_item" => self.delete_item().await,
             "create_connector" => self.create_connector().await,

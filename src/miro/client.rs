@@ -3,8 +3,8 @@ use crate::miro::types::{
     Board, BoardsResponse, BulkCreateRequest, BulkCreateResponse, Caption, ConnectorResponse,
     ConnectorStyle, CreateBoardRequest, CreateBoardResponse, CreateConnectorRequest,
     CreateFrameRequest, CreateShapeRequest, CreateStickyNoteRequest, CreateTextRequest,
-    FrameResponse, Geometry, Item, ItemsResponse, Position, ShapeResponse, StickyNoteResponse,
-    TextResponse, UpdateItemRequest,
+    FrameResponse, Geometry, Item, ItemsResponse, Parent, Position, ShapeResponse,
+    StickyNoteResponse, TextResponse, UpdateItemRequest,
 };
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -137,6 +137,7 @@ impl MiroClient {
         x: f64,
         y: f64,
         color: String,
+        parent_id: Option<String>,
     ) -> Result<StickyNoteResponse, MiroError> {
         let request_body = CreateStickyNoteRequest {
             data: crate::miro::types::StickyNoteData {
@@ -153,6 +154,7 @@ impl MiroClient {
                 width: 200.0,
                 height: None,
             },
+            parent: parent_id.map(|id| Parent { id }),
         };
         let json_body = serde_json::to_value(&request_body)?;
         let path = format!("/boards/{}/sticky_notes", board_id);
@@ -173,6 +175,7 @@ impl MiroClient {
         width: f64,
         height: f64,
         content: Option<String>,
+        parent_id: Option<String>,
     ) -> Result<ShapeResponse, MiroError> {
         let shape_data = crate::miro::types::ShapeData {
             content,
@@ -194,6 +197,7 @@ impl MiroClient {
             style: shape_style,
             position,
             geometry,
+            parent: parent_id.map(|id| Parent { id }),
         };
 
         let json_body = serde_json::to_value(&request_body)?;
@@ -211,6 +215,7 @@ impl MiroClient {
         x: f64,
         y: f64,
         width: f64,
+        parent_id: Option<String>,
     ) -> Result<TextResponse, MiroError> {
         let request_body = CreateTextRequest {
             data: crate::miro::types::TextData { content },
@@ -219,6 +224,7 @@ impl MiroClient {
                 width,
                 height: None,
             },
+            parent: parent_id.map(|id| Parent { id }),
         };
         let json_body = serde_json::to_value(&request_body)?;
         let path = format!("/boards/{}/texts", board_id);
@@ -238,6 +244,7 @@ impl MiroClient {
         width: f64,
         height: f64,
         fill_color: Option<String>,
+        parent_id: Option<String>,
     ) -> Result<FrameResponse, MiroError> {
         let frame_data = crate::miro::types::FrameData {
             title,
@@ -257,6 +264,7 @@ impl MiroClient {
             style: frame_style,
             position,
             geometry,
+            parent: parent_id.map(|id| Parent { id }),
         };
 
         let json_body = serde_json::to_value(&request_body)?;
@@ -308,18 +316,31 @@ impl MiroClient {
         Ok(connector)
     }
 
-    /// List items on a board with optional type filtering
+    /// List items on a board with optional type filtering and parent filtering
     pub async fn list_items(
         &self,
         board_id: &str,
         item_types: Option<Vec<&str>>,
+        parent_id: Option<&str>,
     ) -> Result<Vec<Item>, MiroError> {
         let mut path = format!("/boards/{}/items", board_id);
+        let mut query_params = Vec::new();
 
         // Add type filter if provided
         if let Some(types) = item_types {
             let type_filter = types.join(",");
-            path.push_str(&format!("?type={}", type_filter));
+            query_params.push(format!("type={}", type_filter));
+        }
+
+        // Add parent filter if provided
+        if let Some(parent) = parent_id {
+            query_params.push(format!("parent.id={}", parent));
+        }
+
+        // Append query string if there are parameters
+        if !query_params.is_empty() {
+            path.push('?');
+            path.push_str(&query_params.join("&"));
         }
 
         let response = self.get(&path).await?;
@@ -327,7 +348,8 @@ impl MiroClient {
         Ok(items_response.data)
     }
 
-    /// Update item properties (position, content, style, geometry)
+    /// Update item properties (position, content, style, geometry, parent)
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_item(
         &self,
         board_id: &str,
@@ -336,12 +358,14 @@ impl MiroClient {
         data: Option<Value>,
         style: Option<Value>,
         geometry: Option<Geometry>,
+        parent_id: Option<String>,
     ) -> Result<Item, MiroError> {
         let request_body = UpdateItemRequest {
             position,
             data,
             style,
             geometry,
+            parent: parent_id.map(|id| Parent { id }),
         };
 
         let json_body = serde_json::to_value(&request_body)?;
@@ -586,6 +610,7 @@ mod tests {
             data: None,
             style: None,
             geometry: Some(geometry),
+            parent: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -682,6 +707,7 @@ mod tests {
                         width: 100.0,
                         height: None,
                     },
+                    parent: None,
                 }
             })
             .collect();
