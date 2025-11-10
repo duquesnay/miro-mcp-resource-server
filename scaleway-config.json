@@ -1,0 +1,50 @@
+{
+  "project": "miro-mcp-server",
+  "type": "container",
+  "runtime": "rust",
+  "region": "fr-par",
+  "registry": "rg.fr-par.scw.cloud/miro-mcp",
+  "resources": {
+    "memory": "256Mi",
+    "cpu": "0.25",
+    "minScale": "1",
+    "maxScale": "1",
+    "comment": "Single instance for personal MCP server - no auto-scaling needed"
+  },
+  "env": {
+    "RUST_LOG": "info",
+    "comment": "Non-secret environment variables - others come from secrets"
+  },
+  "secrets": [
+    "MIRO_CLIENT_ID",
+    "MIRO_CLIENT_SECRET",
+    "MIRO_REDIRECT_URI",
+    "MIRO_ENCRYPTION_KEY",
+    "TOKEN_STORAGE_PATH"
+  ],
+  "health": {
+    "endpoint": "/health",
+    "timeout": 10,
+    "comment": "Health check for container readiness - MCP server may not have HTTP endpoint, adjust as needed"
+  },
+  "deployment": {
+    "port": 3000,
+    "protocol": "stdio",
+    "comment": "MCP uses stdio transport, not HTTP - container exposes for potential future HTTP wrapper"
+  },
+  "volumes": {
+    "data": {
+      "mount": "/app/data",
+      "purpose": "Persistent token storage",
+      "comment": "TOKEN_STORAGE_PATH should point to /app/data/tokens.enc"
+    }
+  },
+  "notes": [
+    "This is a Rust MCP server for Miro board manipulation",
+    "OAuth2 flow requires production redirect URI configured in Miro Developer Portal",
+    "Production redirect URI format: https://miro-mcp-server-<namespace>.scw.cloud/oauth/callback",
+    "Encryption key must be 32-byte hex string (generate with: openssl rand -hex 32)",
+    "Container runs as non-root user 'mcp' (UID 1000) for security",
+    "Token storage persisted to volume at /app/data/tokens.enc"
+  ]
+}

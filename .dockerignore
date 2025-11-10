@@ -1,0 +1,50 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# Git and version control
+.git/
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation and planning (not needed in container)
+README.md
+CLAUDE.md
+docs/
+planning/
+
+# Environment files (secrets should come from Scaleway)
+.env
+.env.*
+config.json
+*.local
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Test files
+tests/
+**/*_test.rs
+
+# Claude configuration
+.claude/
+
+# Cargo cache (will be rebuilt in container)
+.cargo/
+
+# Example files
+*.example.json
+*.example
+
+# Scripts (not needed in runtime container)
+scripts/
