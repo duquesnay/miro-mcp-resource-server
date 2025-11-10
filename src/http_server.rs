@@ -1,10 +1,12 @@
 use crate::auth::{
-    CookieStateManager, CookieTokenManager, MiroOAuthClient, OAuthCookieState, OAuthTokenCookie,
+    extract_bearer_token, CookieStateManager, CookieTokenManager, MiroOAuthClient,
+    OAuthCookieState, OAuthTokenCookie, TokenValidator,
 };
 use crate::mcp::oauth_metadata;
 use axum::{
     extract::{Query, State},
-    http::{header, StatusCode},
+    http::{header, Request, StatusCode},
+    middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
     Router,
@@ -12,7 +14,7 @@ use axum::{
 use oauth2::PkceCodeVerifier;
 use serde::Deserialize;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// OAuth callback query parameters
 #[derive(Debug, Deserialize)]
@@ -27,6 +29,7 @@ pub struct AppState {
     oauth_client: Arc<MiroOAuthClient>,
     cookie_state_manager: CookieStateManager,
     cookie_token_manager: CookieTokenManager,
+    token_validator: Arc<TokenValidator>,
 }
 
 /// Handle OAuth callback from Miro
@@ -249,23 +252,75 @@ async fn health_check() -> impl IntoResponse {
     (StatusCode::OK, "OK")
 }
 
+/// Bearer token validation middleware
+///
+/// Validates Bearer tokens on all protected routes.
+/// Extracts token from Authorization header, validates with TokenValidator,
+/// and returns 401 if missing or invalid.
+async fn bearer_auth_middleware(
+    State(state): State<AppState>,
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    // Extract Bearer token from Authorization header
+    let token = match extract_bearer_token(request.headers()) {
+        Ok(token) => token,
+        Err(e) => {
+            warn!("Bearer token extraction failed: {}", e);
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    };
+
+    // Validate token with Miro API (with caching)
+    let user_info = match state.token_validator.validate_token(&token).await {
+        Ok(user_info) => user_info,
+        Err(e) => {
+            warn!("Token validation failed: {}", e);
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    };
+
+    // Store user_info in request extensions for handlers to access
+    request.extensions_mut().insert(user_info);
+
+    // Continue to handler
+    Ok(next.run(request).await)
+}
+
 /// Create and configure the HTTP server
 pub fn create_app(
     oauth_client: Arc<MiroOAuthClient>,
     cookie_state_manager: CookieStateManager,
     cookie_token_manager: CookieTokenManager,
+    token_validator: Arc<TokenValidator>,
 ) -> Router {
     let state = AppState {
         oauth_client,
         cookie_state_manager,
         cookie_token_manager,
+        token_validator,
     };
 
-    Router::new()
+    // Public routes (no auth required)
+    let public_routes = Router::new()
         .route("/health", get(health_check))
         .route("/.well-known/oauth-protected-resource", get(oauth_metadata))
         .route("/oauth/authorize", get(oauth_authorize))
-        .route("/oauth/callback", get(oauth_callback))
+        .route("/oauth/callback", get(oauth_callback));
+
+    // Protected routes (require Bearer token validation)
+    let protected_routes = Router::new()
+        // MCP endpoints will be added here later
+        // For now, this is a placeholder for future routes
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            bearer_auth_middleware,
+        ));
+
+    // Combine routes
+    Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
         .with_state(state)
 }
 
@@ -275,11 +330,13 @@ pub async fn run_server(
     oauth_client: Arc<MiroOAuthClient>,
     cookie_state_manager: CookieStateManager,
     cookie_token_manager: CookieTokenManager,
+    token_validator: Arc<TokenValidator>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let app = create_app(
         oauth_client,
         cookie_state_manager,
         cookie_token_manager,
+        token_validator,
     );
     let addr = format!("127.0.0.1:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -312,11 +369,13 @@ mod tests {
         let oauth_client = Arc::new(MiroOAuthClient::new(&config).unwrap());
         let cookie_state_manager = CookieStateManager::from_config(config.encryption_key);
         let cookie_token_manager = CookieTokenManager::from_config(config.encryption_key);
+        let token_validator = Arc::new(TokenValidator::new());
 
         let app = create_app(
             oauth_client,
             cookie_state_manager,
             cookie_token_manager,
+            token_validator,
         );
         assert!(std::mem::size_of_val(&app) > 0);
     }
