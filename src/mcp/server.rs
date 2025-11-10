@@ -2,8 +2,10 @@ use crate::auth::{MiroOAuthClient, TokenStore};
 use crate::config::Config;
 use crate::miro::MiroClient;
 use rmcp::{
-    handler::server::tool::ToolRouter, model::*, service::RequestContext, tool, tool_router,
-    ErrorData as McpError, RoleServer, ServerHandler,
+    handler::server::tool::{ToolCallContext, ToolRouter},
+    model::*,
+    service::RequestContext,
+    tool, tool_router, ErrorData as McpError, RoleServer, ServerHandler,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -386,36 +388,21 @@ impl ServerHandler for MiroMcpServer {
     async fn call_tool(
         &self,
         params: CallToolRequestParam,
-        _ctx: RequestContext<RoleServer>,
+        ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        // Delegate to the individual tool methods based on the tool name
-        match params.name.as_ref() {
-            "start_auth" => self.start_auth().await,
-            "list_boards" => self.list_boards().await,
-            "create_board" => self.create_board().await,
-            "create_sticky_note" => self.create_sticky_note().await,
-            "create_shape" => self.create_shape().await,
-            "create_text" => self.create_text().await,
-            "create_frame" => self.create_frame().await,
-            "list_items" => {
-                // Parse list_items parameters from the request
-                let args_value =
-                    serde_json::Value::Object(params.arguments.clone().unwrap_or_default());
-                let list_params: ListItemsParams =
-                    serde_json::from_value(args_value).map_err(|e| {
-                        McpError::internal_error(format!("Invalid parameters: {}", e), None)
-                    })?;
-                self.list_items_with_params(list_params).await
-            }
-            "update_item" => self.update_item().await,
-            "delete_item" => self.delete_item().await,
-            "create_connector" => self.create_connector().await,
-            "bulk_create_items" => self.bulk_create_items().await,
-            _ => Err(McpError::internal_error(
-                format!("Unknown tool: {}", params.name.as_ref()),
-                None,
-            )),
+        // Special handling for list_items (has parameter-based routing)
+        if params.name.as_ref() == "list_items" {
+            let args_value =
+                serde_json::Value::Object(params.arguments.clone().unwrap_or_default());
+            let list_params: ListItemsParams = serde_json::from_value(args_value).map_err(|e| {
+                McpError::internal_error(format!("Invalid parameters: {}", e), None)
+            })?;
+            return self.list_items_with_params(list_params).await;
         }
+
+        // Use the tool router for all other tools
+        let tool_ctx = ToolCallContext::new(self, params, ctx);
+        self.tool_router.call(tool_ctx).await
     }
 }
 
