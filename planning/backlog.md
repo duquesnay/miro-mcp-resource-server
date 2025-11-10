@@ -35,6 +35,8 @@
   - Note: Implemented but superseded by ADR-002 (Resource Server pattern)
 - [x] AUTH6: Claude discovers OAuth via metadata endpoint (vs manual configuration) ✅ 2025-11-10
 - [x] AUTH7: Server extracts Bearer tokens from Authorization header (vs cookies) ✅ 2025-11-10
+- [x] AUTH8: Server validates tokens with Miro introspection API (vs trusting Claude) ✅ 2025-11-10
+- [x] AUTH9: Token validation cached with 5-minute TTL (vs 100ms latency per request) ✅ 2025-11-10
 
 ## In Progress
 
