@@ -32,14 +32,13 @@ async fn create_test_client(_mock_server_uri: &str) -> MiroClient {
     token_store.save(&tokens).unwrap();
 
     let oauth_client = MiroOAuthClient::new(&config).unwrap();
-    let client = MiroClient::new(token_store, oauth_client).unwrap();
 
     // Note: In production code, we'd need to inject the mock server URL
     // For this test, we'll configure the client to use the mock server
     // This would require modifying MiroClient to accept a base_url parameter
     // For now, these tests document the expected behavior
 
-    client
+    MiroClient::new(token_store, oauth_client).unwrap()
 }
 
 #[tokio::test]
@@ -122,7 +121,7 @@ async fn test_create_sticky_note_with_parent() {
     // This would fail if parent_id wasn't properly sent/handled
 
     // For now, we verify the mock documents the correct API contract
-    assert_eq!(mock_server.address().port() > 0, true);
+    assert!(mock_server.address().port() > 0);
 }
 
 #[tokio::test]
@@ -191,7 +190,7 @@ async fn test_update_item_move_to_frame() {
     // assert_eq!(updated_item.parent, Some(Parent { id: "frame-999".to_string() }));
 
     // Verify mock setup
-    assert_eq!(mock_server.address().port() > 0, true);
+    assert!(mock_server.address().port() > 0);
 }
 
 #[tokio::test]
@@ -255,7 +254,7 @@ async fn test_list_items_filtered_by_parent() {
     // assert_eq!(items[1].parent, Some(Parent { id: "frame-123".to_string() }));
 
     // Verify mock setup
-    assert_eq!(mock_server.address().port() > 0, true);
+    assert!(mock_server.address().port() > 0);
 }
 
 #[tokio::test]
@@ -331,7 +330,7 @@ async fn test_update_item_remove_from_frame() {
     // assert_eq!(updated_item.parent, None);
 
     // Verify mock setup
-    assert_eq!(mock_server.address().port() > 0, true);
+    assert!(mock_server.address().port() > 0);
 }
 
 // Additional test: Create frame that will contain items
@@ -409,7 +408,7 @@ async fn test_create_frame_for_parent() {
     // This frame ID can now be used as parent_id for creating items inside it
 
     // Verify mock setup
-    assert_eq!(mock_server.address().port() > 0, true);
+    assert!(mock_server.address().port() > 0);
 }
 
 // Additional test: Verify request includes Bearer token
@@ -425,12 +424,10 @@ async fn test_authentication_header_included() {
             "Authorization",
             "Bearer test_access_token",
         ))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(&json!({
-                "data": [],
-                "cursor": null
-            })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [],
+            "cursor": null
+        })))
         .expect(0) // No requests expected until MiroClient supports base URL injection
         .mount(&mock_server)
         .await;
@@ -442,5 +439,5 @@ async fn test_authentication_header_included() {
     // assert!(result.is_ok());
 
     // Verify mock setup
-    assert_eq!(mock_server.address().port() > 0, true);
+    assert!(mock_server.address().port() > 0);
 }

@@ -124,20 +124,19 @@ impl Config {
     /// Load configuration from environment variables
     /// Reads: MIRO_CLIENT_ID, MIRO_CLIENT_SECRET, MIRO_REDIRECT_URI, MIRO_ENCRYPTION_KEY, MCP_SERVER_PORT
     pub fn from_env_vars() -> Result<Self, ConfigError> {
-        let client_id = std::env::var("MIRO_CLIENT_ID")
-            .map_err(|_| ConfigError::FileNotFound {
-                path: "environment".to_string(),
-                reason: "MIRO_CLIENT_ID environment variable not set".to_string(),
-            })?;
+        let client_id = std::env::var("MIRO_CLIENT_ID").map_err(|_| ConfigError::FileNotFound {
+            path: "environment".to_string(),
+            reason: "MIRO_CLIENT_ID environment variable not set".to_string(),
+        })?;
 
-        let client_secret = std::env::var("MIRO_CLIENT_SECRET")
-            .map_err(|_| ConfigError::FileNotFound {
+        let client_secret =
+            std::env::var("MIRO_CLIENT_SECRET").map_err(|_| ConfigError::FileNotFound {
                 path: "environment".to_string(),
                 reason: "MIRO_CLIENT_SECRET environment variable not set".to_string(),
             })?;
 
-        let redirect_uri = std::env::var("MIRO_REDIRECT_URI")
-            .map_err(|_| ConfigError::FileNotFound {
+        let redirect_uri =
+            std::env::var("MIRO_REDIRECT_URI").map_err(|_| ConfigError::FileNotFound {
                 path: "environment".to_string(),
                 reason: "MIRO_REDIRECT_URI environment variable not set".to_string(),
             })?;
@@ -145,8 +144,8 @@ impl Config {
         // Validate redirect URI
         let _ = url::Url::parse(&redirect_uri)?;
 
-        let encryption_key_hex = std::env::var("MIRO_ENCRYPTION_KEY")
-            .map_err(|_| ConfigError::FileNotFound {
+        let encryption_key_hex =
+            std::env::var("MIRO_ENCRYPTION_KEY").map_err(|_| ConfigError::FileNotFound {
                 path: "environment".to_string(),
                 reason: "MIRO_ENCRYPTION_KEY environment variable not set".to_string(),
             })?;
