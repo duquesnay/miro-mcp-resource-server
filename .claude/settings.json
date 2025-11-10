@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "miro-mcp-server": {
-      "command": "/path/to/miro-mcp-server/target/release/miro-mcp-server",
+      "command": "/Users/guillaume/miro-mcp-server/target/release/miro-mcp-server",
       "args": [],
       "env": {}
     }

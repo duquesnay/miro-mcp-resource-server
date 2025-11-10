@@ -80,7 +80,7 @@ Edit your `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "miro": {
+    "miro-mcp-server": {
       "command": "/absolute/path/to/miro-rust-remote-mcp/target/release/miro-mcp-server",
       "args": [],
       "env": {}
@@ -95,7 +95,7 @@ Example for macOS:
 ```json
 {
   "mcpServers": {
-    "miro": {
+    "miro-mcp-server": {
       "command": "/Users/yourname/dev/miro-rust-remote-mcp/target/release/miro-mcp-server",
       "args": [],
       "env": {}
@@ -131,7 +131,7 @@ Add to your MCP settings:
 ```json
 {
   "mcpServers": {
-    "miro": {
+    "miro-mcp-server": {
       "command": "/absolute/path/to/miro-rust-remote-mcp/target/release/miro-mcp-server",
       "args": [],
       "env": {}
