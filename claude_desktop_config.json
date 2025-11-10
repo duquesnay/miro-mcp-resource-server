@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "miro-local": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "--manifest-path",
+        "/Users/guillaume/dev/experiments/miro-mcp-server/Cargo.toml"
+      ],
+      "env": {
+        "RUST_LOG": "miro_mcp_server=debug"
+      }
+    }
+  }
+}
