@@ -185,6 +185,14 @@ agile_flow:
 - **Token Expiry**: Access tokens expire after 3600 seconds (1 hour)
 - **API Version**: v2 (stable, v1 deprecated for most endpoints)
 
+### Stateless Architecture Constraints (ADR-001)
+- **State Management**: Encrypted cookies only (no database/Redis/in-memory state)
+- **Cookie Security**: httpOnly, Secure, SameSite attributes mandatory
+- **State Expiration**: OAuth state 10-minute TTL
+- **Token Lifetime**: Access token 1-hour maximum
+- **Encryption**: Server secret for cookie encryption/decryption
+- **Cold Start Resilient**: Must survive serverless function cold starts
+
 ### Security Requirements
 - HTTPS/TLS mandatory for OAuth2 redirect URI
 - Access tokens encrypted at rest
@@ -203,12 +211,14 @@ agile_flow:
 
 ## Success Criteria
 
-### Phase 1: Authentication (Epic 1 Complete)
-- [ ] User completes OAuth2 authorization flow
-- [ ] Access token obtained and stored securely
-- [ ] Refresh token obtained and stored securely
-- [ ] Token auto-refresh working (no manual re-auth)
-- [ ] All API requests use Bearer token authentication
+### Phase 1: Authentication (Epic 1 Complete + ADR-001 Implementation)
+- [ ] User completes OAuth2 authorization flow via browser
+- [ ] PKCE implemented (code_verifier + code_challenge)
+- [ ] State stored in encrypted httpOnly cookies (10-min TTL)
+- [ ] Access token stored in encrypted httpOnly cookies (1-hour TTL)
+- [ ] Refresh token rotation implemented (if applicable)
+- [ ] Stateless architecture verified (survives cold starts)
+- [ ] All API requests use Bearer token from cookie
 
 ### Phase 2: Basic Operations (Epics 2-3 Complete)
 - [ ] User lists existing Miro boards
@@ -265,6 +275,10 @@ agile_flow:
 2. **MCP protocol compliance**: Mitigated by integration-specialist validation
 3. **Token security**: Mitigated by security-specialist review before production
 4. **Miro API rate limits**: Mitigated by bulk operations (BULK1) and smart batching
+5. **Stateless architecture transition**: Current implementation uses in-memory HashMap for state
+   - **Risk**: Must refactor to encrypted cookies before serverless deployment
+   - **Impact**: Architecture redesign mid-project
+   - **Mitigation**: Prioritize ADR-001 implementation before building on top of stateful code
 
 **Medium Risks**:
 1. **Rust async complexity**: Mitigated by solution-architect patterns + tokio best practices
@@ -318,8 +332,51 @@ agile_flow:
 - Test token refresh using short-lived test tokens
 - Manual testing with Claude.ai interface before release
 
-**Deployment Platform Candidates**:
-- Fly.io (supports Rust, easy HTTPS, good for MCP servers)
-- Railway (similar to Fly.io)
-- Self-hosted VPS with Nginx reverse proxy
-- Decision needed by end of Sprint 1
+**Infrastructure & Deployment**
+
+**Platform Choice: Scaleway Serverless Functions** ✅
+
+*Decision rationale*: Optimal for sporadic, low-volume MCP usage (personal use, 1-10 users)
+
+**Performance Analysis**:
+- **Workload pattern**: Sporadic bursts (org chart 1x/day + spaced API calls)
+- **Cold start**: ~200-300ms Rust binary (acceptable for MCP operations)
+- **Warm response**: 50-100ms (instance reuse window: 5-15min)
+- **OAuth2 flow**: 2-3s total (login 1x/day = acceptable UX)
+- **MCP operations**: 500-800ms latency (board/visualization creation = acceptable)
+
+**Cost Projection**:
+- **Functions**: $1-3/month (10-50 invocations/month, pay-per-use)
+- **Containers**: $5-10/month minimum (always-on or min scaling)
+- **Verdict**: Functions = 3-5x more economical for sporadic usage
+
+**Recommended Configuration**:
+```yaml
+functions:
+  miro-mcp:
+    runtime: rust
+    memory: 256MB       # Sufficient for OAuth2 + API calls
+    timeout: 30s        # Ample for token exchange + Miro API
+    min_scale: 0        # Scale to zero = cost optimal
+    max_scale: 2        # Personal use, no need for more
+```
+
+**Architecture (ADR-001)**:
+- **Pattern**: Stateless compute with encrypted cookies (PKCE + Encrypted State)
+- **State management**: No persistent server state (survives cold starts)
+- **Token storage**: Encrypted httpOnly cookies (encryption key in env var)
+- **Reference**: Auth0, Supabase, NextAuth.js pattern
+
+**Migration Triggers** (to Containers):
+- Latency becomes critical (<100ms required)
+- Volume increases (>100 invocations/day)
+- Need persistent WebSocket (currently not the case for MCP HTTP)
+
+**Platform Details**:
+- **Compute**: Scaleway Serverless Functions
+- **Secrets**: Scaleway Secret Manager (CLIENT_SECRET, TOKEN_ENCRYPTION_KEY)
+- **Logs**: Scaleway Cockpit (audit trail for OAuth2 events)
+- **TLS**: Native HTTPS (required for OAuth2 redirect URI)
+- **Cost target**: $1-5/month (vs $25-50/month with database)
+
+**Decision date**: 2025-11-10 (ADR-001 architecture, 2025-11-10 platform choice)
