@@ -42,7 +42,7 @@ echo "   Registry: $REGISTRY_ENDPOINT"
 # Authenticate Docker to Scaleway registry
 echo ""
 echo "🔐 Authenticating to Scaleway Container Registry..."
-scw registry login --region ${REGISTRY_REGION}
+scw registry login region=${REGISTRY_REGION}
 
 # Step 3: Tag and push image
 echo ""
