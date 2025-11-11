@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to release (e.g., v0.2.0)'
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-release:
+    name: Build and Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-release-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-release-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-index-
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-release-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-target-
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          # Extract version from git tag (e.g., refs/tags/v0.2.0 -> 0.2.0)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          # Fallback to workflow input for manual dispatch
+          VERSION=${VERSION:-${{ github.event.inputs.tag }}}
+          # Remove leading 'v' if present in input
+          VERSION=${VERSION#v}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "artifact=miro-mcp-server-${VERSION}-x86_64-linux.tar.gz" >> $GITHUB_OUTPUT
+
+      - name: Build release binary
+        run: cargo build --release --bin server
+
+      - name: Verify binary exists
+        run: |
+          test -f target/release/server || (echo "Binary not found at target/release/server" && exit 1)
+          ls -lh target/release/server
+
+      - name: Create tarball
+        run: |
+          cd target/release
+          tar czf ${{ steps.version.outputs.artifact }} server
+          cd - && mv target/release/${{ steps.version.outputs.artifact }} .
+          ls -lh ${{ steps.version.outputs.artifact }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.version.outputs.artifact }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
