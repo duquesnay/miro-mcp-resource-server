@@ -76,6 +76,9 @@ pub enum AuthError {
     #[error("Token is invalid or expired")]
     TokenInvalid,
 
+    #[error("Token refresh failed: {0}")]
+    TokenRefreshFailed(String),
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
@@ -83,6 +86,7 @@ pub enum AuthError {
     JsonError(#[from] serde_json::Error),
 }
 
+#[cfg(feature = "stdio-mcp")]
 impl<RE, T> From<oauth2::RequestTokenError<RE, T>> for AuthError
 where
     RE: std::error::Error + 'static,
