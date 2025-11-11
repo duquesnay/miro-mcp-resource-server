@@ -6,7 +6,7 @@
 set -e
 
 # Configuration
-PROJECT_NAME="miro-mcp"
+PROJECT_NAME="miro-mcp-server"
 REGION="${SCW_DEFAULT_REGION:-fr-par}"
 REGISTRY_REGION="${SCW_DEFAULT_REGION:-fr-par}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"  # Accept tag from environment or default to 'latest'
@@ -38,6 +38,11 @@ REGISTRY_NAMESPACE_ID=$(scw container namespace list -o json | jq -r '.[0].regis
 REGISTRY_ENDPOINT=$(scw registry namespace get ${REGISTRY_NAMESPACE_ID} -o json | jq -r '.endpoint')
 
 echo "   Registry: $REGISTRY_ENDPOINT"
+
+# Authenticate Docker to Scaleway registry
+echo ""
+echo "🔐 Authenticating to Scaleway Container Registry..."
+scw registry login --region ${REGISTRY_REGION}
 
 # Step 3: Tag and push image
 echo ""
@@ -73,10 +78,7 @@ if [ -z "$CONTAINER_ID" ] || [ "$CONTAINER_ID" = "null" ]; then
         min-scale=1 \
         max-scale=1 \
         cpu-limit=250 \
-        memory-limit=256 \
-        health-check.http.path=/health \
-        health-check.failure-threshold=30 \
-        health-check.interval=10s -o json | jq -r '.id')
+        memory-limit=256 -o json | jq -r '.id')
 else
     echo "   Updating existing container (ID: ${CONTAINER_ID})..."
     scw container container update ${CONTAINER_ID} \
