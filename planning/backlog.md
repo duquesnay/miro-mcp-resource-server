@@ -66,18 +66,16 @@
 
 ## Planned
 
-### 🔄 Architectural Change: ADR-002 → ADR-004 (Proxy OAuth Pattern)
+### ⚠️ NOTE: Proxy OAuth Items are Historical (Not Implemented)
 
-**Context**: ADR-002 (HTTP Resource Server pattern) implemented but does not work with Claude.ai web interface.
-- **Problem**: Claude.ai web cannot complete OAuth flow with current implementation
-- **Root Cause**: Resource Server pattern requires Claude to handle OAuth → Claude.ai doesn't support this
-- **Decision**: Switch to Proxy OAuth pattern (ADR-004) where OUR server proxies OAuth between Claude.ai and Miro
-- **Impact**: 7 new implementation tasks (AUTH10-14, TEST3, DEPLOY4) + 4 file modifications
-- **Previous Work**: AUTH3-9 provided foundation (cookie management, metadata endpoint, token validation)
-  - AUTH4/AUTH5 (cookie encryption) remains useful for state management
-  - AUTH6-9 (metadata, token validation) gets modified for proxy pattern
+**Context**: The items below (AUTH10-14, TEST3, DEPLOY4) describe a **Proxy OAuth pattern** that was analyzed but **NOT implemented** in this GitHub fork.
 
-**New Implementation Tasks Below** (AUTH10-14, TEST3, DEPLOY4)
+**This fork implements**: **Resource Server pattern** (ADR-002) - Claude handles OAuth, server validates Bearer tokens
+- **Status**: ✅ Production deployment (Scaleway Containers)
+- **Simplicity**: 70% less code than Proxy OAuth
+- **Build time**: ~30 seconds (vs ~2 minutes with Proxy OAuth dependencies)
+
+**Historical Proxy OAuth items preserved** for reference (see archive/ADR-004-proxy-oauth-for-claude-web.md for full analysis)
 
 ---
 

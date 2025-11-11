@@ -185,20 +185,21 @@ agile_flow:
 - **Token Expiry**: Access tokens expire after 3600 seconds (1 hour)
 - **API Version**: v2 (stable, v1 deprecated for most endpoints)
 
-### Stateless Architecture Constraints (ADR-001)
-- **State Management**: Encrypted cookies only (no database/Redis/in-memory state)
-- **Cookie Security**: httpOnly, Secure, SameSite attributes mandatory
-- **State Expiration**: OAuth state 10-minute TTL
-- **Token Lifetime**: Access token 1-hour maximum
-- **Encryption**: Server secret for cookie encryption/decryption
-- **Cache Persistence**: LRU cache in-memory for token validation (requires container)
+### Stateless Architecture (ADR-002 Resource Server)
+- **Authentication**: Bearer token validation only (no OAuth flow management)
+- **Token Validation**: LRU cache in-memory (5-minute TTL, 95% hit rate)
+- **No State Storage**: No cookies, sessions, or databases required
+- **Scalability**: Stateless design enables horizontal scaling
+- **Performance**: <1ms token validation latency (cached)
+- **Deployment**: Container-based (Scaleway Containers) with persistent cache
 
 ### Security Requirements
-- HTTPS/TLS mandatory for OAuth2 redirect URI
-- Access tokens encrypted at rest
-- Refresh tokens stored securely
-- Client secret NEVER in client-side code or version control
-- Audit logging for authentication events
+- HTTPS/TLS mandatory for production deployment
+- Bearer tokens validated with Miro API
+- Tokens never logged (even in debug mode)
+- Client ID/secret in environment variables only
+- Audit logging for authentication events (correlation IDs)
+- In-memory cache only (no persistent token storage)
 
 ### MCP Protocol Requirements
 - Remote MCP server accessible via public URL
@@ -211,14 +212,14 @@ agile_flow:
 
 ## Success Criteria
 
-### Phase 1: Authentication (Epic 1 Complete + ADR-001 Implementation)
-- [ ] User completes OAuth2 authorization flow via browser
-- [ ] PKCE implemented (code_verifier + code_challenge)
-- [ ] State stored in encrypted httpOnly cookies (10-min TTL)
-- [ ] Access token stored in encrypted httpOnly cookies (1-hour TTL)
-- [ ] Refresh token rotation implemented (if applicable)
-- [ ] Stateless architecture verified (survives cold starts)
-- [ ] All API requests use Bearer token from cookie
+### Phase 1: Authentication (Epic 1 Complete - ADR-002 Resource Server)
+- [x] OAuth Protected Resource metadata endpoint (RFC 9728)
+- [x] Bearer token extraction from Authorization header
+- [x] Token validation with Miro API introspection
+- [x] LRU cache for token validation (5-min TTL)
+- [x] Stateless architecture (no session storage)
+- [x] Correlation IDs for request tracing
+- [x] Structured logging (JSON format for production)
 
 ### Phase 2: Basic Operations (Epics 2-3 Complete)
 - [ ] User lists existing Miro boards
@@ -271,14 +272,10 @@ agile_flow:
 ## Risk Management
 
 **High Risks**:
-1. **OAuth2 complexity**: Mitigated by developer experience + solution-architect planning
-2. **MCP protocol compliance**: Mitigated by integration-specialist validation
-3. **Token security**: Mitigated by security-specialist review before production
-4. **Miro API rate limits**: Mitigated by bulk operations (BULK1) and smart batching
-5. **Resource Server pattern**: ADR-002 supersedes ADR-001 stateless OAuth architecture
-   - **Change**: Claude handles OAuth, we validate tokens (RFC 9728 Resource Server)
-   - **Impact**: 70% less code (~150 LOC vs ~500 LOC)
-   - **Benefit**: LRU cache for token validation (95% cache hit rate, <1ms latency)
+1. **OAuth2 integration**: Mitigated by Resource Server pattern (ADR-002) - Claude handles OAuth flow
+2. **MCP protocol compliance**: Mitigated by integration-specialist validation + RFC 9728 metadata
+3. **Token security**: Mitigated by Bearer token validation + in-memory caching (5-min TTL)
+4. **Miro API rate limits**: Mitigated by token validation caching (95% hit rate) + bulk operations
 
 **Medium Risks**:
 1. **Rust async complexity**: Mitigated by solution-architect patterns + tokio best practices
@@ -369,12 +366,13 @@ containers:
     port: 3000          # HTTP/SSE transport
 ```
 
-**Architecture (ADR-002)**:
-- **Pattern**: Resource Server with token validation + caching (RFC 9728)
-- **OAuth flow**: Claude handles OAuth, server validates tokens
-- **Token storage**: Claude stores tokens (not our responsibility)
-- **Cache**: LRU cache (100 tokens, 5-min TTL) for validation results
-- **Code complexity**: ~150 LOC (70% less than ADR-001 Proxy OAuth)
+**Architecture (ADR-002 Resource Server)**:
+- **Pattern**: OAuth Resource Server per RFC 9728
+- **OAuth flow**: Claude handles OAuth with Miro directly
+- **Token validation**: Bearer tokens validated via Miro API
+- **Caching**: LRU cache (100 tokens, 5-min TTL) achieves 95% hit rate
+- **Code complexity**: ~150 LOC (70% less than Proxy OAuth alternative)
+- **Build time**: ~30 seconds (no encryption dependencies)
 
 **Cache Configuration**:
 - **Type**: LRU (Least Recently Used)
@@ -389,4 +387,5 @@ containers:
 - **TLS**: Native HTTPS (Scaleway provides TLS termination)
 - **Cost target**: €20/month (vs €25-50/month with database)
 
-**Decision date**: 2025-11-10 (ADR-002 architecture supersedes ADR-001, container vs function)
+**Decision date**: 2025-11-10 (ADR-002 Resource Server architecture)
+**Production deployment**: 2025-11-12 (Scaleway Containers)

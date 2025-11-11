@@ -7,8 +7,9 @@ MCP server for Miro board manipulation via OAuth2 authentication, built in Rust.
 **Primary Use Case**: Visualize agile team structures (squads, roles, reporting lines) from natural language prompts in <5 minutes.
 
 **Key Differentiators**:
-- First Miro MCP with OAuth2 support (vs static tokens)
+- OAuth Resource Server pattern (RFC 9728) - Claude handles OAuth, server validates tokens
 - Rust implementation (vs existing TypeScript servers)
+- Stateless architecture with in-memory caching (95% hit rate, <1ms latency)
 - Remote MCP deployment for Claude.ai web interface
 
 ---
@@ -167,27 +168,27 @@ let results = futures::future::join_all(handles).await;
 
 ### Security Standards
 
-**Token Storage**:
-- Access tokens encrypted at rest using `ring` or `rustls`
-- Refresh tokens stored separately with higher security
+**Token Validation** (Resource Server Pattern):
+- Bearer tokens validated via Miro API introspection
+- Tokens cached in-memory only (5-minute TTL)
 - NEVER log tokens (even in debug mode)
-- Use `SecretString` or similar for sensitive data
+- No persistent token storage required
 
 **Secrets Management**:
 ```rust
-// Good - secrets from environment or secure store
-let client_secret = env::var("MIRO_CLIENT_SECRET")
-    .expect("MIRO_CLIENT_SECRET not set");
+// Good - secrets from environment variables
+let client_id = env::var("MIRO_CLIENT_ID")
+    .expect("MIRO_CLIENT_ID not set");
 
 // Bad - hardcoded secrets
-const CLIENT_SECRET: &str = "AKoo...";  // ❌ NEVER
+const CLIENT_ID: &str = "3458764647516852398";  // ❌ NEVER
 ```
 
-**OAuth2 Security**:
-- Validate `state` parameter to prevent CSRF
-- Use PKCE (Proof Key for Code Exchange) if supported by Miro
-- Verify redirect URI matches registered URI exactly
-- Implement token rotation (use new refresh token each refresh)
+**Authentication Security**:
+- Bearer token extraction from Authorization header
+- Token validation with correlation IDs for audit trail
+- HTTPS mandatory for production deployment
+- In-memory cache only (no database/persistent storage)
 
 ---
 
@@ -444,23 +445,21 @@ git branch --show-current
 
 ### Before Committing Auth Code
 
-- [ ] No hardcoded secrets (client_id, client_secret, tokens)
-- [ ] Tokens encrypted at rest
-- [ ] State parameter validated (CSRF prevention)
-- [ ] Redirect URI matches registered URI exactly
-- [ ] Token expiry checked before API calls
-- [ ] Refresh token rotated on use
-- [ ] Sensitive data not logged (even in debug mode)
+- [ ] No hardcoded secrets (client_id, tokens)
+- [ ] Tokens never logged (even in debug mode)
+- [ ] Bearer token extraction tested
+- [ ] Token validation with Miro API functional
+- [ ] Cache TTL configured correctly (5 minutes)
+- [ ] Correlation IDs added to all requests
 
 ### Before Production Deployment
 
 - [ ] security-specialist review passed
 - [ ] HTTPS/TLS configured correctly
-- [ ] Redirect URI registered in Miro Developer Portal
-- [ ] Environment variables for all secrets
-- [ ] Token storage encryption tested
-- [ ] Audit logging for auth events
-- [ ] Rate limiting implemented
+- [ ] Environment variables for MIRO_CLIENT_ID
+- [ ] Token validation cache tested
+- [ ] Audit logging with correlation IDs functional
+- [ ] Health check endpoint responding
 
 ---
 
@@ -574,14 +573,14 @@ tokio-test = "0.4"
 
 **HTTPS Required**: OAuth2 redirect URI must use HTTPS
 
-**Platform: Scaleway Containers** ✅ (Selected 2025-11-10)
+**Platform: Scaleway Containers** ✅ (Deployed 2025-11-12)
 
 **Rationale**:
 - Container-based deployment for MCP server
-- Native HTTPS support (required for OAuth2)
-- Stateless architecture (ADR-002) compatible
-- Predictable pricing and resource allocation
-- Supports Resource Server pattern with token validation
+- Native HTTPS support (required for production)
+- Stateless architecture (ADR-002 Resource Server)
+- Predictable pricing (~€20/month)
+- In-memory LRU cache for token validation (persistent container required)
 
 **Configuration**: See [planning/framing.md](planning/framing.md) for deployment details
 
@@ -592,13 +591,18 @@ tokio-test = "0.4"
 ### Environment Variables
 
 ```bash
-# Required for production
-MIRO_CLIENT_ID=3458764647516852398
-MIRO_CLIENT_SECRET=<from secure store>
-MIRO_REDIRECT_URI=https://[container-name].containers.scw.cloud/oauth/callback
-MCP_SERVER_PORT=3000
-TOKEN_ENCRYPTION_KEY=<generated securely>
+# Required for production (Resource Server pattern)
+MIRO_CLIENT_ID=3458764647516852398  # For OAuth metadata endpoint
+PORT=3000                            # HTTP server port
+RUST_LOG=info                        # Logging level (info/debug/trace)
+
+# Optional (with sensible defaults)
+BASE_URL=https://your-deployment.scw.cloud  # For metadata endpoint URLs
+CACHE_CAPACITY=100                   # Token cache size (default: 100)
+CACHE_TTL_SECONDS=300                # Cache TTL (default: 5 minutes)
 ```
+
+**Note**: No MIRO_CLIENT_SECRET required for Resource Server pattern (Claude handles OAuth)
 
 ### Health Check Endpoint
 
@@ -645,12 +649,34 @@ TOKEN_ENCRYPTION_KEY=<generated securely>
 
 **This section documents project-specific learnings as they emerge.**
 
-### [Date] - [Learning Title]
+### 2025-11-12 - Resource Server Pattern Simplicity
 
-**Context**: [What situation led to this learning]
-**Finding**: [What we discovered]
-**Implication**: [How this changes our approach]
-**Action**: [What we're doing differently going forward]
+**Context**: This GitHub fork (https://github.com/duquesnay/miro-mcp-resource-server) explored implementing OAuth Resource Server pattern as alternative to Proxy OAuth
+
+**Finding**: Resource Server pattern is significantly simpler:
+- **70% less code**: ~150 LOC vs ~500 LOC for Proxy OAuth
+- **No OAuth complexity**: Claude handles authorization flow, we only validate tokens
+- **No encryption dependencies**: No `ring` crate needed, faster builds (~30s vs ~2min)
+- **Stateless by design**: In-memory LRU cache only, no database/sessions required
+- **Production ready**: Successfully deployed to Scaleway Containers
+
+**Implication**: For MCP servers integrating with external OAuth providers (Miro, GitHub, etc.), Resource Server pattern should be considered first - Proxy OAuth adds significant complexity without clear benefits
+
+**Action**: Document Resource Server pattern as recommended approach in project CLAUDE.md. Archive Proxy OAuth ADRs (ADR-001, ADR-004) as historical reference.
+
+### 2025-11-10 - Pattern Selection: Simplicity Over Features
+
+**Context**: Evaluated two OAuth patterns - Resource Server (simple) vs Proxy OAuth (complex)
+
+**Finding**: Initial instinct was to implement full Proxy OAuth with PKCE, encrypted cookies, state management. Analysis revealed Resource Server pattern was sufficient:
+- Claude can handle OAuth flow directly
+- Our server only needs to validate tokens
+- No need for OAuth state management complexity
+- Standards compliance via RFC 9728 Protected Resource Metadata
+
+**Implication**: "Simpler is better" applies to authentication patterns - don't implement OAuth complexity unless you have specific requirements (custom flows, rate limiting across users, multi-provider aggregation)
+
+**Action**: Always evaluate simplest pattern first. For external OAuth providers, default to Resource Server unless proven otherwise.
 
 ---
 

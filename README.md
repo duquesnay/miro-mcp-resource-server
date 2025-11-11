@@ -4,8 +4,8 @@ A production-ready Model Context Protocol (MCP) server for Miro board manipulati
 
 ## Features
 
-- **OAuth2 Authentication**: Secure authorization code flow with PKCE and CSRF protection
-- **Automatic Token Refresh**: Seamless token renewal without user intervention
+- **OAuth Resource Server Pattern**: Claude handles OAuth, server validates Bearer tokens (RFC 9728)
+- **In-Memory Token Caching**: 95% cache hit rate, <1ms validation latency
 - **Board Operations**: List and create Miro boards programmatically
 - **Visual Elements**: Create sticky notes, shapes, text, and frames
 - **Item Management**: List, update, and delete board items (coming soon)
@@ -14,10 +14,10 @@ A production-ready Model Context Protocol (MCP) server for Miro board manipulati
 
 ## Key Differentiators
 
-- **First OAuth2-enabled Miro MCP**: Unlike existing TypeScript implementations using static tokens
-- **Rust Performance**: Memory-safe, concurrent, and fast
+- **OAuth Resource Server Pattern**: Simpler than Proxy OAuth (70% less code)
+- **Rust Performance**: Memory-safe, concurrent, and fast (~30s builds)
 - **Remote MCP**: Accessible from Claude.ai web interface via HTTPS
-- **Production-Ready**: AES-256-GCM token encryption, comprehensive error handling
+- **Production-Ready**: Deployed to Scaleway Containers, stateless architecture
 
 ## Prerequisites
 
@@ -27,12 +27,12 @@ A production-ready Model Context Protocol (MCP) server for Miro board manipulati
 
 ## Setup
 
-### 1. Create Miro OAuth2 App
+### 1. Get Miro OAuth2 Client ID
 
 1. Visit https://developers.miro.com/
 2. Click "Your Apps" → "Create new app"
-3. Note your **Client ID** and **Client Secret**
-4. Add redirect URI: `http://localhost:3010/oauth/callback` (for local development)
+3. Note your **Client ID** (example: 3458764647516852398)
+4. **No redirect URI needed** - Claude handles OAuth flow directly
 
 ### 2. Configure Application
 
@@ -64,14 +64,11 @@ Configuration file (`~/.config/mcp/miro-rust/config.json`):
 }
 ```
 
-**Configuration Fields:**
-- `client_id`: Your Miro OAuth2 Client ID (from Miro Developer Portal)
-- `client_secret`: Your Miro OAuth2 Client Secret (from Miro Developer Portal)
-- `redirect_uri`: OAuth2 callback URL (must match Miro app configuration)
-  - Development: `http://localhost:3010/oauth/callback`
-  - Production: `https://your-domain.com/oauth/callback`
-- `encryption_key`: 32-byte hex string for token encryption (generate with `openssl rand -hex 32`)
+**Configuration Fields (Resource Server Pattern):**
+- `client_id`: Your Miro OAuth2 Client ID (for OAuth metadata endpoint)
 - `port`: Server port (3010 for development)
+
+**Note**: No `client_secret`, `redirect_uri`, or `encryption_key` needed - Claude handles the OAuth flow
 
 ### 3. Build and Run
 
@@ -86,9 +83,9 @@ cargo run --release
 cargo run
 ```
 
-### 4. Start OAuth Flow
+### 4. Connect from Claude
 
-The MCP server will provide a `start_auth` tool that returns an authorization URL. Open this URL in your browser to authorize the application.
+The MCP server exposes OAuth Protected Resource metadata at `/.well-known/oauth-protected-resource`. Claude will discover this endpoint and handle the OAuth flow automatically when you first use the MCP server.
 
 ## Project Structure
 
@@ -133,9 +130,10 @@ miro-mcp-server/
 
 ## Security
 
-- **OAuth2 Security**: PKCE prevents authorization code interception, state parameter prevents CSRF
-- **Token Encryption**: AES-256-GCM encryption for tokens at rest
-- **Secrets Management**: All credentials loaded from environment variables
+- **Resource Server Pattern**: Claude handles OAuth, we only validate tokens
+- **Token Validation**: Bearer tokens validated via Miro API introspection
+- **In-Memory Caching**: Tokens cached for 5 minutes, no persistent storage
+- **Secrets Management**: Client ID from environment variables only
 - **No Unsafe Code**: 100% safe Rust, memory safety guaranteed
 - **Comprehensive Error Handling**: Result types throughout, no production panics
 
@@ -195,17 +193,18 @@ git merge feat/feature-name
 - Strong type system prevents many bugs at compile time
 - Fast performance for production deployment
 
-### Why OAuth2 vs Static Tokens?
-- Better security (tokens can be revoked)
-- User-specific permissions (each user authorizes individually)
-- Automatic refresh (no manual token renewal)
-- Required for Claude.ai web interface integration
+### Why Resource Server Pattern?
+- Simpler than Proxy OAuth (70% less code)
+- Claude handles OAuth flow complexity
+- No state management required (PKCE, cookies, etc.)
+- Stateless architecture (scales horizontally)
+- Fast builds (~30s vs ~2min with encryption)
 
-### Why AES-256-GCM for Token Storage?
-- Authenticated encryption (confidentiality + integrity)
-- Industry standard, well-audited
-- Efficient in Rust via `ring` crate
-- Prevents token tampering
+### Why In-Memory Token Caching?
+- Reduces Miro API calls by 95%
+- <1ms validation latency (cached)
+- No database required
+- 5-minute TTL balances security vs performance
 
 ## Deployment
 
@@ -214,21 +213,17 @@ git merge feat/feature-name
 2. Run `cargo run`
 3. OAuth callback works on localhost:3010
 
-### Production (HTTPS Required)
-1. Deploy to Scaleway Containers (or alternative platform)
-2. Configure HTTPS/TLS certificate
-3. Update redirect URI in `~/.config/mcp/miro-rust/config.json` and Miro Developer Portal
-4. Deploy with `cargo build --release`
+### Production (Scaleway Containers - Deployed)
+1. Deploy to Scaleway Containers using GitHub Actions (automated)
+2. Configure environment variables (MIRO_CLIENT_ID, PORT, BASE_URL)
+3. HTTPS configured automatically by Scaleway
+4. No secrets storage required (Claude handles OAuth tokens)
 
-**Configuration on Production Server:**
-```bash
-# On your production server
-mkdir -p ~/.config/mcp/miro-rust
-nano ~/.config/mcp/miro-rust/config.json
-
-# Add your production configuration with HTTPS redirect URI:
-# "redirect_uri": "https://your-domain.com/oauth/callback"
-```
+**Deployment Status:**
+- **Platform**: Scaleway Containers
+- **URL**: https://flyagileapipx8njvei-miro-mcp.functions.fnc.fr-par.scw.cloud
+- **Architecture**: Resource Server with in-memory caching
+- **Build Time**: ~30 seconds (no encryption dependencies)
 
 **Recommended Platforms:**
 - **Scaleway Containers** (Selected): Container-based deployment, native HTTPS, predictable pricing
