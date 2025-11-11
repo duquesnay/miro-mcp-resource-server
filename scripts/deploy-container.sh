@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
 #
-# Deploy Miro MCP Server to Scaleway Containers
+# Deploy Miro MCP Server (ADR-005 Resource Server) to Scaleway Containers
 #
 
 set -e
 
-# Configuration
-PROJECT_NAME="miro-mcp-server"
-REGION="${SCW_DEFAULT_REGION:-fr-par}"
-REGISTRY_REGION="${SCW_DEFAULT_REGION:-fr-par}"
-IMAGE_TAG="${IMAGE_TAG:-latest}"  # Accept tag from environment or default to 'latest'
+# Load configuration from .env.production
+if [ -f ".env.production" ]; then
+    echo "📄 Loading configuration from .env.production"
+    export $(grep -v '^#' .env.production | xargs)
+fi
 
-echo "🚀 Deploying Miro MCP Server (ADR-002) to Scaleway Containers"
+# Configuration
+PROJECT_NAME="${PROJECT_NAME:-miro-mcp-adr005}"
+REGION="${REGION:-fr-par}"
+REGISTRY_REGION="${REGION:-fr-par}"
+IMAGE_TAG="${IMAGE_TAG:-latest}"
+
+echo "🚀 Deploying Miro MCP Server (ADR-005 Resource Server) to Scaleway Containers"
+echo "📌 Project: ${PROJECT_NAME}"
 echo "📌 Image tag: ${IMAGE_TAG}"
+echo "📌 Region: ${REGION}"
 echo ""
 
 # Step 1: Build Docker image (only if IMAGE_TAG is 'latest')
@@ -74,15 +82,28 @@ if [ -z "$CONTAINER_ID" ] || [ "$CONTAINER_ID" = "null" ]; then
         region=${REGION} \
         namespace-id=${CONTAINER_NAMESPACE_ID} \
         registry-image=${REGISTRY_IMAGE} \
-        port=3010 \
-        min-scale=1 \
-        max-scale=1 \
-        cpu-limit=250 \
-        memory-limit=256 -o json | jq -r '.id')
+        port=${MCP_SERVER_PORT:-3010} \
+        min-scale=${MIN_SCALE:-1} \
+        max-scale=${MAX_SCALE:-1} \
+        cpu-limit=${CPU_LIMIT:-250} \
+        memory-limit=${MEMORY_LIMIT:-256} \
+        environment-variables.MIRO_CLIENT_ID="${MIRO_CLIENT_ID}" \
+        environment-variables.MIRO_REDIRECT_URI="${MIRO_REDIRECT_URI}" \
+        environment-variables.BASE_URL="${BASE_URL}" \
+        environment-variables.MCP_SERVER_PORT="${MCP_SERVER_PORT:-3010}" \
+        environment-variables.LOG_FORMAT="json" \
+        environment-variables.RUST_LOG="info" \
+        -o json | jq -r '.id')
 else
     echo "   Updating existing container (ID: ${CONTAINER_ID})..."
     scw container container update ${CONTAINER_ID} \
-        registry-image=${REGISTRY_IMAGE}
+        registry-image=${REGISTRY_IMAGE} \
+        environment-variables.MIRO_CLIENT_ID="${MIRO_CLIENT_ID}" \
+        environment-variables.MIRO_REDIRECT_URI="${MIRO_REDIRECT_URI}" \
+        environment-variables.BASE_URL="${BASE_URL}" \
+        environment-variables.MCP_SERVER_PORT="${MCP_SERVER_PORT:-3010}" \
+        environment-variables.LOG_FORMAT="json" \
+        environment-variables.RUST_LOG="info"
 fi
 
 # Step 5: Deploy (start) the container
