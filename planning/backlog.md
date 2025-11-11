@@ -328,6 +328,21 @@ Please clarify which items are actively being worked on.
   - **Dependencies**: None (optimization only)
   - **Complexity**: 0.2 (single RUN directive)
 
+- [ ] **CI2**: Developer publishes new version via git tag (vs manual GitHub release creation)
+  - **Current State**: GitHub Actions CI exists (ci.yml) with tests/clippy/fmt but no version-triggered automation
+  - **Target State**: Tagging triggers automated release build and GitHub release creation
+  - **Value**: Streamlines release process from 30min manual to 5min automated
+  - **Acceptance Criteria**:
+    - Workflow triggers on `v*` tags (e.g., `git tag v0.2.0 && git push --tags`)
+    - Builds release binary with `cargo build --release`
+    - Creates GitHub release with auto-generated changelog from commits
+    - Uploads optimized binary artifact to release
+    - (Optional) Triggers deployment to Scaleway if tag matches production criteria
+    - Test: Create v0.1.1 tag, verify release appears on GitHub with binary artifact
+  - **Dependencies**: CI1 (existing CI workflow)
+  - **Complexity**: 1.0 (CI workflow creation)
+  - **Priority**: Medium (production-readiness capability, not P0 blocker)
+
 ### Documentation (Quality Enablers)
 
 ⚠️ **NOTE**: Documentation items reframed as developer capabilities (time-to-understanding metrics)
