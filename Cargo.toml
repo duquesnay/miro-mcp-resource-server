@@ -39,8 +39,12 @@ wiremock = "0.6"
 serial_test = "3.0"
 
 [features]
-stdio-mcp = ["rmcp", "oauth2", "ring", "base64", "aes-gcm", "rand", "sha2"]
-default = ["stdio-mcp"]
+# OAuth proxy features (no rmcp dependency - for server binary)
+oauth-proxy = ["oauth2", "ring", "base64", "aes-gcm", "rand", "sha2"]
+# Full MCP server with stdio transport (requires rmcp - nightly only)
+stdio-mcp = ["rmcp", "oauth-proxy"]
+# Default for server binary - OAuth proxy only (stable Rust)
+default = ["oauth-proxy"]
 test-utils = []
 
 [[bin]]

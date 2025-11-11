@@ -1,13 +1,13 @@
-#![cfg_attr(not(feature = "stdio-mcp"), allow(dead_code))]
+#![cfg_attr(not(feature = "oauth-proxy"), allow(dead_code))]
 
-#[cfg(feature = "stdio-mcp")]
+#[cfg(feature = "oauth-proxy")]
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
-#[cfg(feature = "stdio-mcp")]
+#[cfg(feature = "oauth-proxy")]
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-#[cfg(feature = "stdio-mcp")]
+#[cfg(feature = "oauth-proxy")]
 use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
@@ -35,12 +35,12 @@ pub enum CookieError {
 ///
 /// Cookie format: [12-byte nonce][ciphertext][16-byte auth tag]
 /// All base64 encoded for safe transmission in HTTP headers
-#[cfg(feature = "stdio-mcp")]
+#[cfg(feature = "oauth-proxy")]
 pub struct CookieManager {
     cipher: Aes256Gcm,
 }
 
-#[cfg(feature = "stdio-mcp")]
+#[cfg(feature = "oauth-proxy")]
 impl CookieManager {
     /// Create a new CookieManager with the provided encryption key
     ///

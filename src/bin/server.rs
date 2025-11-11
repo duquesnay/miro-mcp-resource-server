@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-#[cfg(feature = "stdio-mcp")]
+#[cfg(feature = "oauth-proxy")]
 use miro_mcp_server::oauth::{
     cookie_manager::CookieManager, proxy_provider::MiroOAuthProvider,
 };
@@ -56,14 +56,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let token_validator = Arc::new(TokenValidator::new());
 
     // Create OAuth provider and cookie manager (AUTH10+AUTH12)
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     let oauth_provider = Arc::new(MiroOAuthProvider::new(
         config.client_id.clone(),
         config.client_secret.clone(),
         config.redirect_uri.clone(),
     ));
 
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     let cookie_manager = Arc::new(CookieManager::new(&config.encryption_key));
 
     // Get port from environment or use config default
@@ -73,12 +73,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(config.port);
 
     info!("Token validator initialized with LRU cache (5-min TTL, 100 capacity)");
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     info!("OAuth proxy components initialized (provider + cookie manager)");
     info!("Starting HTTP server on 0.0.0.0:{}", port);
 
     // Start HTTP server
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     miro_mcp_server::run_server_adr002(
         port,
         token_validator,
@@ -88,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    #[cfg(not(feature = "stdio-mcp"))]
+    #[cfg(not(feature = "oauth-proxy"))]
     miro_mcp_server::run_server_adr002(port, token_validator, config).await?;
 
     Ok(())

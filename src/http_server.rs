@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tracing::{info, warn, error};
 use uuid::Uuid;
 
-#[cfg(feature = "stdio-mcp")]
+#[cfg(feature = "oauth-proxy")]
 use crate::oauth::{
     authorize_handler, callback_handler, token_handler,
     cookie_manager::CookieManager, proxy_provider::MiroOAuthProvider,
@@ -130,9 +130,9 @@ async fn correlation_id_middleware(
 pub struct AppStateADR002 {
     pub token_validator: Arc<TokenValidator>,
     pub config: Arc<Config>,
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     pub oauth_provider: Arc<MiroOAuthProvider>,
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     pub cookie_manager: Arc<CookieManager>,
 }
 
@@ -219,12 +219,12 @@ async fn bearer_auth_middleware_adr002(
 pub fn create_app_adr002(
     token_validator: Arc<TokenValidator>,
     config: Arc<Config>,
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     oauth_provider: Arc<MiroOAuthProvider>,
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     cookie_manager: Arc<CookieManager>,
 ) -> Router {
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     let state = AppStateADR002 {
         token_validator,
         config,
@@ -232,14 +232,14 @@ pub fn create_app_adr002(
         cookie_manager,
     };
 
-    #[cfg(not(feature = "stdio-mcp"))]
+    #[cfg(not(feature = "oauth-proxy"))]
     let state = AppStateADR002 {
         token_validator,
         config,
     };
 
     // Public routes (no authentication required)
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     let oauth_routes = Router::new()
         .route("/oauth/authorize", get(authorize_handler))
         .route("/oauth/callback", get(callback_handler))
@@ -250,7 +250,7 @@ pub fn create_app_adr002(
         .route("/health", get(health_check))
         .route("/.well-known/oauth-protected-resource", get(oauth_metadata));
 
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     let public_routes = public_routes.merge(oauth_routes);
 
     // Protected routes (Bearer token required)
@@ -276,15 +276,15 @@ pub async fn run_server_adr002(
     port: u16,
     token_validator: Arc<TokenValidator>,
     config: Arc<Config>,
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     oauth_provider: Arc<MiroOAuthProvider>,
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     cookie_manager: Arc<CookieManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     let app = create_app_adr002(token_validator, config, oauth_provider, cookie_manager);
 
-    #[cfg(not(feature = "stdio-mcp"))]
+    #[cfg(not(feature = "oauth-proxy"))]
     let app = create_app_adr002(token_validator, config);
 
     let addr = format!("0.0.0.0:{}", port);
@@ -292,7 +292,7 @@ pub async fn run_server_adr002(
 
     info!("ADR-002 Resource Server + ADR-004 Proxy OAuth listening on {}", addr);
     info!("OAuth metadata endpoint: http://{}/.well-known/oauth-protected-resource", addr);
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     info!("OAuth proxy endpoints: /oauth/authorize, /oauth/callback, /oauth/token");
     info!("Protected endpoints require Bearer token validation");
 
@@ -311,7 +311,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(feature = "stdio-mcp")]
+    #[cfg(feature = "oauth-proxy")]
     fn test_create_app_adr002() {
         let token_validator = Arc::new(TokenValidator::new());
         let config = Arc::new(Config::from_env_or_file().unwrap());
@@ -326,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "stdio-mcp"))]
+    #[cfg(not(feature = "oauth-proxy"))]
     fn test_create_app_adr002() {
         let token_validator = Arc::new(TokenValidator::new());
         let config = Arc::new(Config::from_env_or_file().unwrap());

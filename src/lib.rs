@@ -3,6 +3,8 @@ pub mod config;
 pub mod http_server;
 pub mod mcp;
 pub mod miro;
+
+#[cfg(feature = "oauth-proxy")]
 pub mod oauth;
 
 #[cfg(feature = "stdio-mcp")]
