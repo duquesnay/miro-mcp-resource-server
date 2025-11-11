@@ -42,7 +42,6 @@
   - Note: Deployed with MCP protocol support; Container: miro-mcp at flyagileapipx8njvei-miro-mcp.functions.fnc.fr-par.scw.cloud
 - [x] OBS1: Developer diagnoses production auth failures through structured logging ✅ 2025-11-11
   - Note: Implemented correlation IDs, structured logging with JSON format, and emergency debugging runbook (DEBUGGING.md)
-- [x] CI2: Developer publishes new version via git tag (vs manual GitHub release creation) ✅ 2025-11-11
 
 ## In Progress
 
