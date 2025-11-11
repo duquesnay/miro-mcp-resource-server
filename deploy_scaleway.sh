@@ -73,7 +73,10 @@ if [ -z "$CONTAINER_ID" ] || [ "$CONTAINER_ID" = "null" ]; then
         min-scale=1 \
         max-scale=1 \
         cpu-limit=250 \
-        memory-limit=256 -o json | jq -r '.id')
+        memory-limit=256 \
+        health-check.http.path=/health \
+        health-check.failure-threshold=30 \
+        health-check.interval=10s -o json | jq -r '.id')
 else
     echo "   Updating existing container (ID: ${CONTAINER_ID})..."
     scw container container update ${CONTAINER_ID} \
