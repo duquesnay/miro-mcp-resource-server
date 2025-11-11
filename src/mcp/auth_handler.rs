@@ -30,7 +30,15 @@ impl AuthHandler {
         pkce_verifier: PkceCodeVerifier,
     ) -> Result<String, Box<dyn std::error::Error>> {
         // Exchange code for tokens
-        let tokens = self.oauth_client.exchange_code(code, pkce_verifier).await?;
+        let cookie_data = self.oauth_client.exchange_code_for_token(&code.to_string(), &pkce_verifier.secret()).await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+
+        // Convert CookieData to TokenSet for storage
+        let tokens = crate::auth::TokenSet {
+            access_token: cookie_data.access_token.clone(),
+            refresh_token: Some(cookie_data.refresh_token.clone()),
+            expires_at: cookie_data.expires_at.timestamp() as u64,
+        };
 
         // Save tokens to encrypted storage
         let token_store = self.token_store.write().await;
@@ -52,13 +60,18 @@ mod tests {
             redirect_uri: "http://localhost:3000/oauth/callback".to_string(),
             encryption_key: [0u8; 32],
             port: 3000,
+            base_url: None,
         }
     }
 
     #[test]
     fn test_auth_handler_creation() {
         let config = get_test_config();
-        let oauth_client = Arc::new(MiroOAuthClient::new(&config).unwrap());
+        let oauth_client = Arc::new(MiroOAuthClient::new(
+            config.client_id.clone(),
+            config.client_secret.clone(),
+            config.redirect_uri.clone(),
+        ));
         let token_store = Arc::new(RwLock::new(TokenStore::new(config.encryption_key).unwrap()));
 
         let handler = AuthHandler::new(oauth_client, token_store);

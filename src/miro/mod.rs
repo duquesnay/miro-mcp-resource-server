@@ -1,7 +1,13 @@
-pub mod builders;
-pub mod client;
 pub mod types;
 
-pub use builders::{ConnectorBuilder, ShapeBuilder, StickyNoteBuilder, TextBuilder};
-pub use client::{MiroClient, MiroError};
+#[cfg(feature = "stdio-mcp")]
+pub mod builders;
+#[cfg(feature = "stdio-mcp")]
+pub mod client;
+
 pub use types::{Board, BoardsResponse, CreateBoardRequest, CreateBoardResponse};
+
+#[cfg(feature = "stdio-mcp")]
+pub use builders::{ConnectorBuilder, ShapeBuilder, StickyNoteBuilder, TextBuilder};
+#[cfg(feature = "stdio-mcp")]
+pub use client::{MiroClient, MiroError};

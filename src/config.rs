@@ -41,6 +41,10 @@ struct ConfigFile {
 
     /// MCP server port
     port: u16,
+
+    /// Base URL for OAuth endpoints (e.g., https://your-server.com)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    base_url: Option<String>,
 }
 
 /// Configuration for Miro MCP Server
@@ -60,6 +64,10 @@ pub struct Config {
 
     /// MCP server port
     pub port: u16,
+
+    /// Base URL for OAuth proxy endpoints (e.g., https://your-server.com)
+    /// Used to construct authorization_endpoint and token_endpoint in metadata
+    pub base_url: Option<String>,
 }
 
 impl Config {
@@ -93,6 +101,7 @@ impl Config {
             redirect_uri: config_file.redirect_uri,
             encryption_key,
             port: config_file.port,
+            base_url: config_file.base_url,
         })
     }
 
@@ -157,12 +166,15 @@ impl Config {
             .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(3000);
 
+        let base_url = std::env::var("BASE_URL").ok();
+
         Ok(Config {
             client_id,
             client_secret,
             redirect_uri,
             encryption_key,
             port,
+            base_url,
         })
     }
 

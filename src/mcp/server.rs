@@ -138,7 +138,11 @@ pub struct MiroMcpServer {
 impl MiroMcpServer {
     /// Create a new MCP server
     pub fn new(config: &Config) -> Result<Self, Box<dyn std::error::Error>> {
-        let oauth_client = Arc::new(MiroOAuthClient::new(config)?);
+        let oauth_client = Arc::new(MiroOAuthClient::new(
+            config.client_id.clone(),
+            config.client_secret.clone(),
+            config.redirect_uri.clone(),
+        ));
         let token_store = TokenStore::new(config.encryption_key)?;
         let miro_client = Arc::new(MiroClient::new(token_store, (*oauth_client).clone())?);
 
@@ -417,6 +421,7 @@ mod tests {
             redirect_uri: "http://localhost:3000/oauth/callback".to_string(),
             encryption_key: [0u8; 32],
             port: 3000,
+            base_url: None,
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::auth::{AuthError, MiroOAuthClient, TokenStore};
+use crate::auth::{AuthError, MiroOAuthClient, TokenSet, TokenStore};
 use crate::miro::types::{
     Board, BoardsResponse, BulkCreateRequest, BulkCreateResponse, Caption, ConnectorResponse,
     ConnectorStyle, CreateBoardRequest, CreateBoardResponse, CreateConnectorRequest,
@@ -171,10 +171,18 @@ impl MiroClient {
             // Refresh the token
             let refresh_token = tokens.refresh_token.ok_or(AuthError::NoToken)?;
 
-            let new_tokens = self
+            let cookie_data = self
                 .oauth_client
-                .refresh_access_token(refresh_token)
-                .await?;
+                .refresh_token(&refresh_token)
+                .await
+                .map_err(|e| AuthError::TokenRefreshFailed(e.to_string()))?;
+
+            // Convert CookieData to TokenSet
+            let new_tokens = TokenSet {
+                access_token: cookie_data.access_token.clone(),
+                refresh_token: Some(cookie_data.refresh_token.clone()),
+                expires_at: cookie_data.expires_at.timestamp() as u64,
+            };
 
             // Save the new tokens
             let token_store = self.token_store.write().await;
@@ -532,10 +540,18 @@ impl MiroClient {
                 drop(token_store);
 
                 if let Some(refresh_token) = tokens.refresh_token {
-                    let new_tokens = self
+                    let cookie_data = self
                         .oauth_client
-                        .refresh_access_token(refresh_token)
-                        .await?;
+                        .refresh_token(&refresh_token)
+                        .await
+                        .map_err(|e| MiroError::AuthError(AuthError::TokenRefreshFailed(e.to_string())))?;
+
+                    // Convert CookieData to TokenSet
+                    let new_tokens = TokenSet {
+                        access_token: cookie_data.access_token.clone(),
+                        refresh_token: Some(cookie_data.refresh_token.clone()),
+                        expires_at: cookie_data.expires_at.timestamp() as u64,
+                    };
 
                     let token_store = self.token_store.write().await;
                     token_store.save(&new_tokens)?;
@@ -616,6 +632,7 @@ mod tests {
             redirect_uri: "http://localhost:3000/oauth/callback".to_string(),
             encryption_key: [0u8; 32],
             port: 3000,
+            base_url: None,
         }
     }
 
@@ -623,7 +640,7 @@ mod tests {
     fn test_client_creation() {
         let config = get_test_config();
         let token_store = TokenStore::new(config.encryption_key).unwrap();
-        let oauth_client = MiroOAuthClient::new(&config).unwrap();
+        let oauth_client = MiroOAuthClient::new(config.client_id.clone(), config.client_secret.clone(), config.redirect_uri.clone());
 
         let result = MiroClient::new(token_store, oauth_client);
         assert!(result.is_ok());
@@ -767,7 +784,7 @@ mod tests {
     fn test_bulk_create_validation_empty_items() {
         let config = get_test_config();
         let token_store = TokenStore::new(config.encryption_key).unwrap();
-        let oauth_client = MiroOAuthClient::new(&config).unwrap();
+        let oauth_client = MiroOAuthClient::new(config.client_id.clone(), config.client_secret.clone(), config.redirect_uri.clone());
         let client = MiroClient::new(token_store, oauth_client).unwrap();
 
         // Test validation: empty items array should fail
@@ -787,7 +804,7 @@ mod tests {
     fn test_bulk_create_validation_too_many_items() {
         let config = get_test_config();
         let token_store = TokenStore::new(config.encryption_key).unwrap();
-        let oauth_client = MiroOAuthClient::new(&config).unwrap();
+        let oauth_client = MiroOAuthClient::new(config.client_id.clone(), config.client_secret.clone(), config.redirect_uri.clone());
         let client = MiroClient::new(token_store, oauth_client).unwrap();
 
         // Create 21 items (exceeds limit of 20)
