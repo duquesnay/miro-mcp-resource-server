@@ -1,6 +1,6 @@
 use crate::auth::{extract_bearer_token, TokenValidator};
 use crate::config::Config;
-use crate::mcp::{oauth_metadata, JsonRpcRequest, JsonRpcResponse, JsonRpcError};
+use crate::mcp::{protected_resource_metadata, JsonRpcRequest, JsonRpcResponse, JsonRpcError};
 use crate::mcp::{handle_initialize, handle_tools_list, handle_tools_call};
 use crate::auth::token_validator::UserInfo;
 use axum::{
@@ -8,18 +8,15 @@ use axum::{
     http::{Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::get,
     Router, Json,
 };
 use std::sync::Arc;
 use tracing::{info, warn, error};
 use uuid::Uuid;
 
-#[cfg(feature = "oauth-proxy")]
-use crate::oauth::{
-    authorize_handler, callback_handler, token_handler,
-    cookie_manager::CookieManager, proxy_provider::MiroOAuthProvider,
-};
+// OAuth proxy removed in ADR-005 (Resource Server pattern)
+// Protected Resource Metadata endpoint added instead
 
 /// Health check endpoint
 async fn health_check() -> impl IntoResponse {
@@ -124,16 +121,12 @@ async fn correlation_id_middleware(
     response
 }
 
-/// Application state for ADR-002 Resource Server with ADR-004 Proxy OAuth
-/// Includes token validation + OAuth proxy components (when stdio-mcp feature enabled)
+/// Application state for ADR-005 Resource Server pattern
+/// Token validation only - Claude handles OAuth
 #[derive(Clone)]
 pub struct AppStateADR002 {
     pub token_validator: Arc<TokenValidator>,
     pub config: Arc<Config>,
-    #[cfg(feature = "oauth-proxy")]
-    pub oauth_provider: Arc<MiroOAuthProvider>,
-    #[cfg(feature = "oauth-proxy")]
-    pub cookie_manager: Arc<CookieManager>,
 }
 
 /// Bearer token validation middleware for ADR-002
@@ -173,7 +166,7 @@ async fn bearer_auth_middleware_adr002(
     };
 
     // Validate token with Miro API (with caching)
-    let user_info = match state.token_validator.validate_token(&token).await {
+    let user_info = match state.token_validator.validate(&token).await {
         Ok(user_info) => user_info,
         Err(e) => {
             warn!(
@@ -197,7 +190,7 @@ async fn bearer_auth_middleware_adr002(
     info!(
         request_id = %request_id,
         user_id = %user_info.user_id,
-        team_id = %user_info.team_id,
+        team_id = ?user_info.team_id,
         scopes = ?user_info.scopes,
         "Request authenticated successfully"
     );
@@ -209,49 +202,25 @@ async fn bearer_auth_middleware_adr002(
     Ok(next.run(request).await)
 }
 
-/// Create HTTP server for ADR-002 Resource Server with ADR-004 Proxy OAuth
+/// Create HTTP server for ADR-005 Resource Server pattern
 /// Includes:
 /// - Correlation ID middleware (OBS1)
-/// - OAuth metadata endpoint (AUTH14 - updated for proxy pattern)
-/// - OAuth proxy endpoints (AUTH11 - authorize, callback, token)
-/// - Bearer token authentication (AUTH7+AUTH8+AUTH9)
-/// - MCP tools (list_boards, get_board)
+/// - Protected Resource Metadata endpoint (RFC 9728)
+/// - Bearer token authentication with JWT validation
+/// - MCP protocol endpoints
 pub fn create_app_adr002(
     token_validator: Arc<TokenValidator>,
     config: Arc<Config>,
-    #[cfg(feature = "oauth-proxy")]
-    oauth_provider: Arc<MiroOAuthProvider>,
-    #[cfg(feature = "oauth-proxy")]
-    cookie_manager: Arc<CookieManager>,
 ) -> Router {
-    #[cfg(feature = "oauth-proxy")]
-    let state = AppStateADR002 {
-        token_validator,
-        config,
-        oauth_provider,
-        cookie_manager,
-    };
-
-    #[cfg(not(feature = "oauth-proxy"))]
     let state = AppStateADR002 {
         token_validator,
         config,
     };
 
     // Public routes (no authentication required)
-    #[cfg(feature = "oauth-proxy")]
-    let oauth_routes = Router::new()
-        .route("/oauth/authorize", get(authorize_handler))
-        .route("/oauth/callback", get(callback_handler))
-        .route("/oauth/token", post(token_handler))
-        .with_state(state.clone());
-
     let public_routes = Router::new()
         .route("/health", get(health_check))
-        .route("/.well-known/oauth-protected-resource", get(oauth_metadata));
-
-    #[cfg(feature = "oauth-proxy")]
-    let public_routes = public_routes.merge(oauth_routes);
+        .route("/.well-known/oauth-protected-resource", get(protected_resource_metadata));
 
     // Protected routes (Bearer token required)
     let protected_routes = Router::new()
@@ -270,31 +239,22 @@ pub fn create_app_adr002(
         .layer(middleware::from_fn(correlation_id_middleware))
 }
 
-/// Run HTTP server with ADR-002 Resource Server + ADR-004 Proxy OAuth
-/// Includes Bearer token validation + OAuth proxy when stdio-mcp feature enabled
+/// Run HTTP server with ADR-005 Resource Server pattern
+/// Claude handles OAuth, we validate JWT tokens
 pub async fn run_server_adr002(
     port: u16,
     token_validator: Arc<TokenValidator>,
     config: Arc<Config>,
-    #[cfg(feature = "oauth-proxy")]
-    oauth_provider: Arc<MiroOAuthProvider>,
-    #[cfg(feature = "oauth-proxy")]
-    cookie_manager: Arc<CookieManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "oauth-proxy")]
-    let app = create_app_adr002(token_validator, config, oauth_provider, cookie_manager);
-
-    #[cfg(not(feature = "oauth-proxy"))]
     let app = create_app_adr002(token_validator, config);
 
     let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
-    info!("ADR-002 Resource Server + ADR-004 Proxy OAuth listening on {}", addr);
-    info!("OAuth metadata endpoint: http://{}/.well-known/oauth-protected-resource", addr);
-    #[cfg(feature = "oauth-proxy")]
-    info!("OAuth proxy endpoints: /oauth/authorize, /oauth/callback, /oauth/token");
-    info!("Protected endpoints require Bearer token validation");
+    info!("ADR-005 Resource Server listening on {}", addr);
+    info!("Protected Resource Metadata: http://{}/.well-known/oauth-protected-resource", addr);
+    info!("OAuth handled by Claude.ai - we validate JWT tokens");
+    info!("Protected endpoints require Bearer token with valid audience");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
@@ -311,25 +271,11 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(feature = "oauth-proxy")]
     fn test_create_app_adr002() {
-        let token_validator = Arc::new(TokenValidator::new());
         let config = Arc::new(Config::from_env_or_file().unwrap());
-        let oauth_provider = Arc::new(MiroOAuthProvider::new(
-            config.client_id.clone(),
-            config.client_secret.clone(),
-            config.redirect_uri.clone(),
+        let token_validator = Arc::new(TokenValidator::new(
+            config.base_url.clone().unwrap_or_else(|| "https://test.example.com".to_string())
         ));
-        let cookie_manager = Arc::new(CookieManager::new(&config.encryption_key));
-        let app = create_app_adr002(token_validator, config, oauth_provider, cookie_manager);
-        assert!(std::mem::size_of_val(&app) > 0);
-    }
-
-    #[test]
-    #[cfg(not(feature = "oauth-proxy"))]
-    fn test_create_app_adr002() {
-        let token_validator = Arc::new(TokenValidator::new());
-        let config = Arc::new(Config::from_env_or_file().unwrap());
         let app = create_app_adr002(token_validator, config);
         assert!(std::mem::size_of_val(&app) > 0);
     }

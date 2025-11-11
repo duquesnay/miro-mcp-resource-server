@@ -4,13 +4,10 @@ pub mod http_server;
 pub mod mcp;
 pub mod miro;
 
-#[cfg(feature = "oauth-proxy")]
-pub mod oauth;
-
 #[cfg(feature = "stdio-mcp")]
 pub mod oauth_dcr;
 
-pub use auth::{AuthError, TokenSet, TokenValidator, UserInfo};
+pub use auth::{AuthError, TokenValidator, UserInfo};
 pub use config::Config;
 pub use http_server::run_server_adr002;
 

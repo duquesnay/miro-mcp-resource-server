@@ -1,18 +1,32 @@
 use axum::{
     body::Body,
     http::{Request, StatusCode},
-    Router,
 };
-use miro_mcp_server::mcp::oauth_metadata;
+use miro_mcp_server::http_server::create_app_adr002;
+use miro_mcp_server::{Config, TokenValidator};
 use serde_json::Value;
+use std::sync::Arc;
 use tower::ServiceExt;
+
+fn get_test_config() -> Config {
+    Config {
+        client_id: "test_client_id".to_string(),
+        client_secret: "test_client_secret".to_string(),
+        redirect_uri: "https://claude.ai/api/mcp/auth_callback".to_string(),
+        encryption_key: [0u8; 32],
+        port: 3000,
+        base_url: Some("https://test.example.com".to_string()),
+    }
+}
 
 /// Test that metadata endpoint returns RFC 9728 Protected Resource Metadata
 #[tokio::test]
 async fn test_metadata_endpoint_returns_rfc9728_format() {
-    // Create router with metadata endpoint
-    let app = Router::new().route("/.well-known/oauth-protected-resource",
-        axum::routing::get(oauth_metadata));
+    let config = Arc::new(get_test_config());
+    let token_validator = Arc::new(TokenValidator::new(
+        config.base_url.clone().unwrap_or_else(|| "https://test.example.com".to_string())
+    ));
+    let app = create_app_adr002(token_validator, config.clone());
 
     // Make request to metadata endpoint
     let response = app
@@ -44,11 +58,11 @@ async fn test_metadata_endpoint_returns_rfc9728_format() {
         "Missing 'authorization_servers' field (RFC 9728 required)"
     );
 
-    // Verify values are correct
+    // Verify values are correct (ADR-005: Resource Server pattern)
     assert_eq!(
         metadata["resource"].as_str().unwrap(),
-        "https://api.miro.com",
-        "Resource should be Miro API"
+        "https://test.example.com",
+        "Resource should be our MCP server URL"
     );
 
     let auth_servers = metadata["authorization_servers"]
@@ -61,8 +75,8 @@ async fn test_metadata_endpoint_returns_rfc9728_format() {
     );
     assert_eq!(
         auth_servers[0].as_str().unwrap(),
-        "https://miro.com/oauth",
-        "Authorization server should be Miro OAuth"
+        "https://miro.com",
+        "Authorization server should be Miro (not our server)"
     );
 
     // Verify optional fields are present and correct
@@ -82,25 +96,21 @@ async fn test_metadata_endpoint_returns_rfc9728_format() {
         "Should support boards:write scope"
     );
 
-    // Verify bearer methods
+    // Verify introspection endpoint (optional field)
     assert!(
-        metadata.get("bearer_methods_supported").is_some(),
-        "Should include bearer_methods_supported"
-    );
-    let methods = metadata["bearer_methods_supported"]
-        .as_array()
-        .expect("bearer_methods_supported should be array");
-    assert!(
-        methods.contains(&Value::String("header".to_string())),
-        "Should support header bearer method"
+        metadata.get("introspection_endpoint").is_some(),
+        "Should include introspection_endpoint for Miro token validation"
     );
 }
 
 /// Test that metadata does NOT include RFC 8414 Authorization Server fields
 #[tokio::test]
 async fn test_metadata_does_not_include_rfc8414_fields() {
-    let app = Router::new().route("/.well-known/oauth-protected-resource",
-        axum::routing::get(oauth_metadata));
+    let config = Arc::new(get_test_config());
+    let token_validator = Arc::new(TokenValidator::new(
+        config.base_url.clone().unwrap_or_else(|| "https://test.example.com".to_string())
+    ));
+    let app = create_app_adr002(token_validator, config);
 
     let response = app
         .oneshot(
@@ -132,18 +142,16 @@ async fn test_metadata_does_not_include_rfc8414_fields() {
     );
 }
 
-/// Test WWW-Authenticate header includes resource_metadata parameter
+/// Test WWW-Authenticate header is returned for unauthorized requests
 #[tokio::test]
-async fn test_www_authenticate_includes_resource_metadata() {
+async fn test_www_authenticate_header_returned() {
     use axum::http::header::WWW_AUTHENTICATE;
-    use miro_mcp_server::{http_server::create_http_server, TokenValidator};
-    use std::sync::Arc;
 
-    // Create mock token validator (won't be called in this test)
-    let token_validator = Arc::new(TokenValidator::new());
-
-    // Create app with bearer middleware
-    let app = create_http_server(token_validator);
+    let config = Arc::new(get_test_config());
+    let token_validator = Arc::new(TokenValidator::new(
+        config.base_url.clone().unwrap_or_else(|| "https://test.example.com".to_string())
+    ));
+    let app = create_app_adr002(token_validator, config);
 
     // Make request without auth token
     let response = app
@@ -161,7 +169,7 @@ async fn test_www_authenticate_includes_resource_metadata() {
     // Should return 401
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
-    // Check WWW-Authenticate header
+    // Check WWW-Authenticate header per RFC 6750
     let www_auth = response
         .headers()
         .get(WWW_AUTHENTICATE)
@@ -169,15 +177,15 @@ async fn test_www_authenticate_includes_resource_metadata() {
         .to_str()
         .unwrap();
 
-    // Should include resource_metadata parameter per RFC 9728
+    // Should include Bearer realm per RFC 6750
     assert!(
-        www_auth.contains("resource_metadata="),
-        "WWW-Authenticate should include resource_metadata parameter, got: {}",
+        www_auth.starts_with("Bearer"),
+        "WWW-Authenticate should start with 'Bearer', got: {}",
         www_auth
     );
     assert!(
-        www_auth.contains("/.well-known/oauth-protected-resource"),
-        "resource_metadata should point to metadata endpoint, got: {}",
+        www_auth.contains("realm=\"miro-mcp-server\""),
+        "WWW-Authenticate should include realm, got: {}",
         www_auth
     );
 }

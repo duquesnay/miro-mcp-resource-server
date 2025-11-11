@@ -367,7 +367,7 @@ mod tests {
             .with_id(Value::Number(1.into()));
         let user_info = Arc::new(UserInfo::new(
             "test-user".to_string(),
-            "test-team".to_string(),
+            Some("test-team".to_string()),
             vec![],
         ));
 
@@ -384,7 +384,7 @@ mod tests {
             .with_id(Value::Number(1.into()));
         let user_info = Arc::new(UserInfo::new(
             "test-user".to_string(),
-            "test-team".to_string(),
+            Some("test-team".to_string()),
             vec![],
         ));
 
@@ -404,7 +404,7 @@ mod tests {
             .with_id(Value::Number(1.into()));
         let user_info = Arc::new(UserInfo::new(
             "test-user".to_string(),
-            "test-team".to_string(),
+            Some("test-team".to_string()),
             vec![],
         ));
         let token = Arc::new("test-token".to_string());
@@ -430,7 +430,7 @@ mod tests {
             }));
         let user_info = Arc::new(UserInfo::new(
             "test-user".to_string(),
-            "test-team".to_string(),
+            Some("test-team".to_string()),
             vec![],
         ));
         let token = Arc::new("test-token".to_string());

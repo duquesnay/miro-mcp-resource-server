@@ -24,14 +24,12 @@ hex = "0.4"
 dirs = "5.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
-# Dependencies only needed for stdio-mcp feature (OAuth client, token storage)
+# JWT validation for Resource Server pattern
+jsonwebtoken = "9.3"
+base64 = "0.22"
+
+# Optional: MCP stdio transport (requires rmcp - nightly only)
 rmcp = { version = "0.6", features = ["server", "transport-io", "transport-streamable-http-server", "auth", "macros"], optional = true }
-oauth2 = { version = "4.4", optional = true }
-ring = { version = "0.17", optional = true }
-base64 = { version = "0.22", optional = true }
-aes-gcm = { version = "0.10", optional = true }
-rand = { version = "0.8", optional = true }
-sha2 = { version = "0.10", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -39,12 +37,10 @@ wiremock = "0.6"
 serial_test = "3.0"
 
 [features]
-# OAuth proxy features (no rmcp dependency - for server binary)
-oauth-proxy = ["oauth2", "ring", "base64", "aes-gcm", "rand", "sha2"]
 # Full MCP server with stdio transport (requires rmcp - nightly only)
-stdio-mcp = ["rmcp", "oauth-proxy"]
-# Default for server binary - OAuth proxy only (stable Rust)
-default = ["oauth-proxy"]
+stdio-mcp = ["rmcp"]
+# Default: HTTP server only (stable Rust, Resource Server pattern)
+default = []
 test-utils = []
 
 [[bin]]

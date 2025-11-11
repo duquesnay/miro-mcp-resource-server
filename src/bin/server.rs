@@ -1,20 +1,16 @@
-//! HTTP server binary for ADR-002 Resource Server + ADR-004 Proxy OAuth
+//! HTTP server binary for ADR-005 Resource Server pattern
 //!
 //! This binary starts the HTTP server with:
-//! - OAuth metadata endpoint (AUTH14 - updated for proxy pattern)
-//! - OAuth proxy endpoints (AUTH11 - authorize, callback, token)
-//! - Bearer token authentication middleware (AUTH7+AUTH8+AUTH9)
+//! - Protected Resource Metadata endpoint (RFC 9728)
+//! - Bearer token authentication middleware with JWT validation
 //! - MCP tools (list_boards, get_board)
+//!
+//! OAuth is handled by Claude.ai - we only validate JWT tokens
 
 use miro_mcp_server::{Config, TokenValidator};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-#[cfg(feature = "oauth-proxy")]
-use miro_mcp_server::oauth::{
-    cookie_manager::CookieManager, proxy_provider::MiroOAuthProvider,
-};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,19 +48,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(Config::from_env_or_file()?);
     info!("Configuration loaded from environment");
 
-    // Create token validator (AUTH8+AUTH9)
-    let token_validator = Arc::new(TokenValidator::new());
-
-    // Create OAuth provider and cookie manager (AUTH10+AUTH12)
-    #[cfg(feature = "oauth-proxy")]
-    let oauth_provider = Arc::new(MiroOAuthProvider::new(
-        config.client_id.clone(),
-        config.client_secret.clone(),
-        config.redirect_uri.clone(),
-    ));
-
-    #[cfg(feature = "oauth-proxy")]
-    let cookie_manager = Arc::new(CookieManager::new(&config.encryption_key));
+    // Create token validator for JWT validation (ADR-005)
+    let resource_url = config.base_url.clone().unwrap_or_else(|| {
+        warn!("base_url not configured - using fallback");
+        "https://miro-mcp.example.com".to_string()
+    });
+    let token_validator = Arc::new(TokenValidator::new(resource_url.clone()));
+    info!(resource_url = %resource_url, "Token validator initialized with JWT validation");
 
     // Get port from environment or use config default
     let port = std::env::var("PORT")
@@ -72,23 +62,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|p| p.parse().ok())
         .unwrap_or(config.port);
 
-    info!("Token validator initialized with LRU cache (5-min TTL, 100 capacity)");
-    #[cfg(feature = "oauth-proxy")]
-    info!("OAuth proxy components initialized (provider + cookie manager)");
-    info!("Starting HTTP server on 0.0.0.0:{}", port);
+    info!("Starting ADR-005 Resource Server on 0.0.0.0:{}", port);
+    info!("OAuth handled by Claude.ai - we validate JWT tokens");
 
-    // Start HTTP server
-    #[cfg(feature = "oauth-proxy")]
-    miro_mcp_server::run_server_adr002(
-        port,
-        token_validator,
-        config,
-        oauth_provider,
-        cookie_manager,
-    )
-    .await?;
-
-    #[cfg(not(feature = "oauth-proxy"))]
+    // Start HTTP server (ADR-005 Resource Server pattern)
     miro_mcp_server::run_server_adr002(port, token_validator, config).await?;
 
     Ok(())

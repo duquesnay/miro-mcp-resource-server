@@ -151,7 +151,7 @@ fn test_tool_call_error_code_for_unknown_tool() {
 
 #[test]
 fn test_token_validator_initialization() {
-    let token_validator = TokenValidator::new();
+    let token_validator = TokenValidator::new("https://test.example.com".to_string());
     // Just verify it can be created without panicking
     assert!(std::mem::size_of_val(&token_validator) > 0);
 }

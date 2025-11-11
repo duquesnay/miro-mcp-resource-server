@@ -1,19 +1,19 @@
 use crate::auth::types::AuthError;
+use jsonwebtoken::{decode, decode_header, DecodingKey, TokenData, Validation};
 use lru::LruCache;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
-/// User information returned from Miro token validation
+/// User information extracted from JWT claims
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserInfo {
-    /// Miro user ID
+    /// User ID from token (sub claim)
     pub user_id: String,
-    /// Miro team ID
-    pub team_id: String,
+    /// Team/tenant ID (if available)
+    pub team_id: Option<String>,
     /// Scopes granted to the token
     pub scopes: Vec<String>,
     /// Timestamp when this cache entry was created
@@ -23,7 +23,7 @@ pub struct UserInfo {
 
 impl UserInfo {
     /// Create new UserInfo with current timestamp
-    pub fn new(user_id: String, team_id: String, scopes: Vec<String>) -> Self {
+    pub fn new(user_id: String, team_id: Option<String>, scopes: Vec<String>) -> Self {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
@@ -49,51 +49,94 @@ impl UserInfo {
     }
 }
 
-/// Response from Miro's token introspection endpoint
-#[derive(Debug, Deserialize)]
-struct MiroTokenResponse {
-    #[serde(rename = "user_id")]
-    user: String,
-    #[serde(rename = "team_id")]
-    team: String,
-    #[serde(rename = "scopes")]
-    scopes: String, // Space-separated string
+/// JWT Claims for Miro OAuth tokens
+///
+/// Standard JWT claims plus Miro-specific fields
+#[derive(Debug, Serialize, Deserialize)]
+struct Claims {
+    /// Subject (user ID)
+    sub: String,
+    /// Audience (which resource this token is for)
+    #[serde(default)]
+    aud: Option<StringOrVec>,
+    /// Expiration time (Unix timestamp)
+    exp: u64,
+    /// Issued at (Unix timestamp)
+    #[serde(default)]
+    iat: Option<u64>,
+    /// Issuer (authorization server)
+    #[serde(default)]
+    iss: Option<String>,
+    /// Scopes (space-separated or array)
+    #[serde(default)]
+    scope: Option<String>,
+    /// Team ID (Miro-specific)
+    #[serde(default, rename = "team_id")]
+    team_id: Option<String>,
 }
 
-/// Token validator with LRU caching
+/// Helper to handle audience claim that can be string or array
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum StringOrVec {
+    String(String),
+    Vec(Vec<String>),
+}
+
+impl StringOrVec {
+    fn contains(&self, value: &str) -> bool {
+        match self {
+            StringOrVec::String(s) => s == value,
+            StringOrVec::Vec(v) => v.iter().any(|s| s == value),
+        }
+    }
+}
+
+/// Token validator with LRU caching for Resource Server pattern
+///
+/// Validates JWT tokens from Claude.ai:
+/// - Decodes JWT (without signature verification - trusts Claude's validation)
+/// - Verifies audience claim matches our server
+/// - Verifies token not expired
+/// - Caches validation results for performance
+///
+/// For production, consider adding JWT signature verification using Miro's JWKS.
 pub struct TokenValidator {
     /// LRU cache for validated tokens (capacity: 100)
     cache: Mutex<LruCache<String, UserInfo>>,
-    /// HTTP client for Miro API calls
-    http_client: Client,
-    /// Miro OAuth token endpoint
-    token_endpoint: String,
+    /// Our server URL (expected in audience claim)
+    resource_url: String,
 }
 
 impl TokenValidator {
     /// Create a new token validator
-    pub fn new() -> Self {
-        Self {
-            cache: Mutex::new(LruCache::new(NonZeroUsize::new(100).unwrap())),
-            http_client: Client::new(),
-            token_endpoint: "https://api.miro.com/v1/oauth-token".to_string(),
-        }
-    }
-
-    /// Create a token validator with custom endpoint (for testing)
-    pub fn new_with_endpoint(endpoint: String) -> Self {
-        Self {
-            cache: Mutex::new(LruCache::new(NonZeroUsize::new(100).unwrap())),
-            http_client: Client::new(),
-            token_endpoint: endpoint,
-        }
-    }
-
-    /// Validate a token and return user info
     ///
-    /// First checks the cache, then validates with Miro API if cache miss or expired.
-    /// Returns 401 for invalid or expired tokens.
-    pub async fn validate_token(&self, token: &str) -> Result<UserInfo, AuthError> {
+    /// # Arguments
+    ///
+    /// * `resource_url` - Our MCP server URL (e.g., "https://miro-mcp.fly-agile.com")
+    ///                    Must match the audience claim in JWT
+    pub fn new(resource_url: String) -> Self {
+        Self {
+            cache: Mutex::new(LruCache::new(NonZeroUsize::new(100).unwrap())),
+            resource_url,
+        }
+    }
+
+    /// Validate Bearer token (JWT from Claude.ai)
+    ///
+    /// # Arguments
+    ///
+    /// * `token` - JWT access token (without "Bearer " prefix)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(UserInfo)` - Token is valid, returns user info
+    /// * `Err(AuthError)` - Token is invalid or expired
+    ///
+    /// # Performance
+    ///
+    /// Results are cached for 5 minutes to reduce validation overhead.
+    pub async fn validate(&self, token: &str) -> Result<UserInfo, AuthError> {
         // Check cache first
         {
             let mut cache = self.cache.lock().unwrap();
@@ -105,18 +148,17 @@ impl TokenValidator {
                     );
                     return Ok(user_info.clone());
                 } else {
-                    debug!("Cached token expired, revalidating");
-                    // Remove expired entry
+                    debug!("Token validation cache expired");
                     cache.pop(token);
                 }
             }
         }
 
-        // Cache miss or expired - validate with Miro API
-        debug!("Token validation cache miss, calling Miro API");
-        let user_info = self.validate_with_miro(token).await?;
+        // Validate token
+        debug!("Validating JWT token");
+        let user_info = self.validate_jwt(token)?;
 
-        // Store in cache
+        // Cache result
         {
             let mut cache = self.cache.lock().unwrap();
             cache.put(token.to_string(), user_info.clone());
@@ -124,96 +166,106 @@ impl TokenValidator {
 
         info!(
             user_id = %user_info.user_id,
-            team_id = %user_info.team_id,
+            scopes = ?user_info.scopes,
             "Token validated successfully"
         );
 
         Ok(user_info)
     }
 
-    /// Validate token with Miro API
-    async fn validate_with_miro(&self, token: &str) -> Result<UserInfo, AuthError> {
-        debug!(
-            endpoint = %self.token_endpoint,
-            "Calling Miro token validation endpoint"
-        );
-
-        let response = self
-            .http_client
-            .get(&self.token_endpoint)
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(|e| {
-                warn!(
-                    error = %e,
-                    endpoint = %self.token_endpoint,
-                    error_type = "http_request_failed",
-                    "Failed to call Miro token endpoint"
-                );
-                AuthError::TokenValidationFailed(format!("HTTP request failed: {}", e))
-            })?;
-
-        let status = response.status();
-
-        if status == reqwest::StatusCode::UNAUTHORIZED {
-            warn!(
-                status = %status,
-                error_type = "invalid_token",
-                "Token validation failed: 401 Unauthorized from Miro API"
-            );
-            return Err(AuthError::TokenInvalid);
-        }
-
-        if !status.is_success() {
-            warn!(
-                status = %status,
-                error_type = "api_error",
-                "Token validation failed with non-2xx status from Miro API"
-            );
-            return Err(AuthError::TokenValidationFailed(format!(
-                "Miro API returned status {}",
-                status
-            )));
-        }
-
-        let miro_response: MiroTokenResponse = response.json().await.map_err(|e| {
-            warn!(
-                error = %e,
-                error_type = "json_parse_failed",
-                "Failed to parse Miro token response"
-            );
-            AuthError::TokenValidationFailed(format!("Failed to parse response: {}", e))
+    /// Validate JWT token
+    ///
+    /// Performs:
+    /// 1. JWT decoding (without signature verification for now)
+    /// 2. Expiry check
+    /// 3. Audience verification
+    ///
+    /// For production: Add signature verification using Miro's JWKS endpoint
+    fn validate_jwt(&self, token: &str) -> Result<UserInfo, AuthError> {
+        // Decode JWT header to check algorithm
+        let header = decode_header(token).map_err(|e| {
+            warn!(error = %e, "Failed to decode JWT header");
+            AuthError::InvalidTokenFormat
         })?;
 
+        debug!(algorithm = ?header.alg, "JWT header decoded");
+
+        // For MVP: Decode without signature verification
+        // TODO: Fetch Miro's JWKS and verify signature in production
+        let mut validation = Validation::default();
+        validation.insecure_disable_signature_validation();
+        validation.validate_exp = true; // Still check expiry
+
+        // Audience validation (if we have it)
+        if !self.resource_url.is_empty() {
+            validation.set_audience(&[&self.resource_url]);
+        }
+
+        let token_data: TokenData<Claims> =
+            decode(token, &DecodingKey::from_secret(&[]), &validation).map_err(|e| {
+                warn!(error = %e, "JWT validation failed");
+                match e.kind() {
+                    jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::TokenExpired,
+                    jsonwebtoken::errors::ErrorKind::InvalidAudience => {
+                        AuthError::TokenValidationFailed(format!(
+                            "Invalid audience - expected {}",
+                            self.resource_url
+                        ))
+                    }
+                    _ => AuthError::TokenInvalid,
+                }
+            })?;
+
+        let claims = token_data.claims;
+
+        // Verify expiry manually (double-check)
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+
+        if claims.exp <= now {
+            warn!(
+                expiry = claims.exp,
+                now = now,
+                "Token expired (manual check)"
+            );
+            return Err(AuthError::TokenExpired);
+        }
+
+        // Verify audience manually if not validated automatically
+        if let Some(aud) = &claims.aud {
+            if !aud.contains(&self.resource_url) {
+                warn!(
+                    expected = %self.resource_url,
+                    "Token audience mismatch"
+                );
+                return Err(AuthError::TokenValidationFailed(format!(
+                    "Token audience does not include {}",
+                    self.resource_url
+                )));
+            }
+        }
+
+        // Extract scopes
+        let scopes = claims
+            .scope
+            .map(|s| s.split_whitespace().map(String::from).collect())
+            .unwrap_or_default();
+
         debug!(
-            user_id = %miro_response.user,
-            team_id = %miro_response.team,
-            scopes = %miro_response.scopes,
-            "Miro API returned valid token information"
+            user_id = %claims.sub,
+            team_id = ?claims.team_id,
+            scopes = ?scopes,
+            expiry = claims.exp,
+            "JWT claims extracted"
         );
 
-        // Parse space-separated scopes
-        let scopes: Vec<String> = miro_response
-            .scopes
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect();
-
-        Ok(UserInfo::new(
-            miro_response.user,
-            miro_response.team,
-            scopes,
-        ))
+        Ok(UserInfo::new(claims.sub, claims.team_id, scopes))
     }
 
-    /// Get cache statistics (for testing and monitoring)
-    pub fn cache_stats(&self) -> (usize, usize) {
-        let cache = self.cache.lock().unwrap();
-        (cache.len(), cache.cap().get())
-    }
-
-    /// Clear the cache (for testing)
+    /// Clear validation cache (useful for testing)
+    #[cfg(test)]
     pub fn clear_cache(&self) {
         let mut cache = self.cache.lock().unwrap();
         cache.clear();
@@ -222,7 +274,7 @@ impl TokenValidator {
 
 impl Default for TokenValidator {
     fn default() -> Self {
-        Self::new()
+        Self::new(String::new())
     }
 }
 
@@ -230,42 +282,109 @@ impl Default for TokenValidator {
 mod tests {
     use super::*;
 
+    // Helper to create a test JWT (unsigned, for testing only)
+    fn create_test_jwt(sub: &str, aud: &str, exp: u64, scope: Option<&str>) -> String {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+
+        let header = serde_json::json!({
+            "alg": "HS256",
+            "typ": "JWT"
+        });
+
+        let mut claims = serde_json::json!({
+            "sub": sub,
+            "aud": aud,
+            "exp": exp,
+            "iat": exp.saturating_sub(3600)
+        });
+
+        if let Some(s) = scope {
+            claims["scope"] = serde_json::json!(s);
+        }
+
+        let header_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_string(&header).unwrap());
+        let claims_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_string(&claims).unwrap());
+
+        format!("{}.{}.fake_signature", header_b64, claims_b64)
+    }
+
+    #[tokio::test]
+    async fn test_validate_valid_token() {
+        let validator = TokenValidator::new("https://test.example.com".to_string());
+        let future_exp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600;
+
+        let token = create_test_jwt("user123", "https://test.example.com", future_exp, Some("boards:read"));
+
+        let result = validator.validate(&token).await;
+        assert!(result.is_ok());
+
+        let user_info = result.unwrap();
+        assert_eq!(user_info.user_id, "user123");
+        assert_eq!(user_info.scopes, vec!["boards:read"]);
+    }
+
+    #[tokio::test]
+    async fn test_validate_expired_token() {
+        let validator = TokenValidator::new("https://test.example.com".to_string());
+        let past_exp = 1000; // Way in the past
+
+        let token = create_test_jwt("user123", "https://test.example.com", past_exp, None);
+
+        let result = validator.validate(&token).await;
+        assert!(result.is_err());
+        matches!(result.unwrap_err(), AuthError::TokenExpired);
+    }
+
+    #[tokio::test]
+    async fn test_validate_wrong_audience() {
+        let validator = TokenValidator::new("https://test.example.com".to_string());
+        let future_exp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600;
+
+        let token = create_test_jwt("user123", "https://wrong.example.com", future_exp, None);
+
+        let result = validator.validate(&token).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_cache_hit() {
+        let validator = TokenValidator::new("https://test.example.com".to_string());
+        let future_exp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600;
+
+        let token = create_test_jwt("user123", "https://test.example.com", future_exp, None);
+
+        // First validation
+        let result1 = validator.validate(&token).await;
+        assert!(result1.is_ok());
+
+        // Second validation should hit cache
+        let result2 = validator.validate(&token).await;
+        assert!(result2.is_ok());
+        assert_eq!(result1.unwrap().user_id, result2.unwrap().user_id);
+    }
+
     #[test]
     fn test_user_info_expiry() {
-        let user_info = UserInfo::new(
-            "user123".to_string(),
-            "team456".to_string(),
-            vec!["boards:read".to_string()],
-        );
+        let user_info = UserInfo {
+            user_id: "test".to_string(),
+            team_id: None,
+            scopes: vec![],
+            cached_at: 1000,
+        };
 
-        // Should not be expired immediately
-        assert!(!user_info.is_expired());
-    }
-
-    #[test]
-    fn test_user_info_expired_after_ttl() {
-        let mut user_info = UserInfo::new(
-            "user123".to_string(),
-            "team456".to_string(),
-            vec!["boards:read".to_string()],
-        );
-
-        // Manually set cached_at to 6 minutes ago
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs();
-        user_info.cached_at = now - (6 * 60); // 6 minutes ago
-
-        // Should be expired
+        // Should be expired if cached_at is way in the past
         assert!(user_info.is_expired());
-    }
-
-    #[test]
-    fn test_token_validator_creation() {
-        let validator = TokenValidator::new();
-        let stats = validator.cache_stats();
-        assert_eq!(stats.0, 0); // Empty cache
-        assert_eq!(stats.1, 100); // Capacity 100
     }
 }

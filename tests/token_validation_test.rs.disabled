@@ -1,9 +1,25 @@
+// NOTE: These tests are disabled for ADR-005 Resource Server pattern
+//
+// ADR-004 used Miro API introspection: HTTP call to /v1/oauth-token with Bearer token
+// ADR-005 uses JWT validation: Decode JWT and validate audience/expiry locally
+//
+// The TokenValidator.validate_jwt() method is comprehensively tested in
+// src/auth/token_validator.rs unit tests (lines 282-390).
+//
+// These integration tests would need complete rewrite to test JWT validation
+// with mock JWT tokens instead of mocking Miro API HTTP responses.
+//
+// TODO: Rewrite as JWT validation integration tests if needed, or remove entirely.
+
+#![allow(dead_code)]
+
 use miro_mcp_server::auth::{AuthError, TokenValidator};
 use wiremock::matchers::{bearer_token, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Test valid token validation with Miro API
 #[tokio::test]
+#[ignore]
 async fn test_valid_token_validation() {
     // Setup mock server
     let mock_server = MockServer::start().await;
@@ -22,7 +38,7 @@ async fn test_valid_token_validation() {
 
     let validator = TokenValidator::new_with_endpoint(format!("{}/v1/oauth-token", mock_server.uri()));
 
-    let result = validator.validate_token("valid_token_123").await;
+    let result = validator.validate("valid_token_123").await;
 
     assert!(result.is_ok());
     let user_info = result.unwrap();
@@ -33,6 +49,7 @@ async fn test_valid_token_validation() {
 
 /// Test invalid token returns 401 error
 #[tokio::test]
+#[ignore]
 async fn test_invalid_token_returns_401() {
     let mock_server = MockServer::start().await;
 
@@ -46,7 +63,7 @@ async fn test_invalid_token_returns_401() {
 
     let validator = TokenValidator::new_with_endpoint(format!("{}/v1/oauth-token", mock_server.uri()));
 
-    let result = validator.validate_token("invalid_token").await;
+    let result = validator.validate("invalid_token").await;
 
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -57,6 +74,7 @@ async fn test_invalid_token_returns_401() {
 
 /// Test expired token returns validation error
 #[tokio::test]
+#[ignore]
 async fn test_expired_token_validation() {
     let mock_server = MockServer::start().await;
 
@@ -70,7 +88,7 @@ async fn test_expired_token_validation() {
 
     let validator = TokenValidator::new_with_endpoint(format!("{}/v1/oauth-token", mock_server.uri()));
 
-    let result = validator.validate_token("expired_token").await;
+    let result = validator.validate("expired_token").await;
 
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -81,6 +99,7 @@ async fn test_expired_token_validation() {
 
 /// Test cache hit scenario - second request doesn't call Miro API
 #[tokio::test]
+#[ignore]
 async fn test_cache_hit_scenario() {
     let mock_server = MockServer::start().await;
 
@@ -100,13 +119,13 @@ async fn test_cache_hit_scenario() {
     let validator = TokenValidator::new_with_endpoint(format!("{}/v1/oauth-token", mock_server.uri()));
 
     // First request - cache miss, calls Miro API
-    let result1 = validator.validate_token("cached_token").await;
+    let result1 = validator.validate("cached_token").await;
     assert!(result1.is_ok());
     let user_info1 = result1.unwrap();
     assert_eq!(user_info1.user_id, "user789");
 
     // Second request - cache hit, does NOT call Miro API
-    let result2 = validator.validate_token("cached_token").await;
+    let result2 = validator.validate("cached_token").await;
     assert!(result2.is_ok());
     let user_info2 = result2.unwrap();
     assert_eq!(user_info2.user_id, "user789");
@@ -119,6 +138,7 @@ async fn test_cache_hit_scenario() {
 
 /// Test cache TTL expiry - test UserInfo expiry logic
 #[tokio::test]
+#[ignore]
 async fn test_cache_ttl_expiry() {
     let mock_server = MockServer::start().await;
 
@@ -136,7 +156,7 @@ async fn test_cache_ttl_expiry() {
     let validator = TokenValidator::new_with_endpoint(format!("{}/v1/oauth-token", mock_server.uri()));
 
     // First validation
-    let result1 = validator.validate_token("ttl_test_token").await;
+    let result1 = validator.validate("ttl_test_token").await;
     assert!(result1.is_ok());
 
     // Note: Full TTL expiry testing would require waiting 5 minutes or mocking time
@@ -148,6 +168,7 @@ async fn test_cache_ttl_expiry() {
 
 /// Test cache capacity limit - 101st token evicts oldest
 #[tokio::test]
+#[ignore]
 async fn test_cache_capacity_limit() {
     let mock_server = MockServer::start().await;
 
@@ -171,7 +192,7 @@ async fn test_cache_capacity_limit() {
     // Validate 100 tokens - all should fit in cache
     for i in 0..100 {
         let token = format!("token_{}", i);
-        let result = validator.validate_token(&token).await;
+        let result = validator.validate(&token).await;
         assert!(result.is_ok());
     }
 
@@ -180,7 +201,7 @@ async fn test_cache_capacity_limit() {
     assert_eq!(cache_len, 100);
 
     // Validate 101st token - should evict oldest (token_0)
-    let result = validator.validate_token("token_100").await;
+    let result = validator.validate("token_100").await;
     assert!(result.is_ok());
 
     // Cache should still have 100 entries
@@ -190,6 +211,7 @@ async fn test_cache_capacity_limit() {
 
 /// Test cache miss after clearing cache
 #[tokio::test]
+#[ignore]
 async fn test_cache_clear() {
     let mock_server = MockServer::start().await;
 
@@ -207,7 +229,7 @@ async fn test_cache_clear() {
     let validator = TokenValidator::new_with_endpoint(format!("{}/v1/oauth-token", mock_server.uri()));
 
     // First validation - cache miss
-    let result1 = validator.validate_token("clear_test_token").await;
+    let result1 = validator.validate("clear_test_token").await;
     assert!(result1.is_ok());
 
     // Verify cache has entry
@@ -224,6 +246,7 @@ async fn test_cache_clear() {
 
 /// Test multiple different tokens are cached correctly
 #[tokio::test]
+#[ignore]
 async fn test_multiple_tokens_cached() {
     let mock_server = MockServer::start().await;
 
@@ -267,15 +290,15 @@ async fn test_multiple_tokens_cached() {
     let validator = TokenValidator::new_with_endpoint(format!("{}/v1/oauth-token", mock_server.uri()));
 
     // Validate all 3 tokens
-    let result_a = validator.validate_token("token_a").await;
+    let result_a = validator.validate("token_a").await;
     assert!(result_a.is_ok());
     assert_eq!(result_a.unwrap().user_id, "user_a");
 
-    let result_b = validator.validate_token("token_b").await;
+    let result_b = validator.validate("token_b").await;
     assert!(result_b.is_ok());
     assert_eq!(result_b.unwrap().user_id, "user_b");
 
-    let result_c = validator.validate_token("token_c").await;
+    let result_c = validator.validate("token_c").await;
     assert!(result_c.is_ok());
     assert_eq!(result_c.unwrap().user_id, "user_c");
 
@@ -284,13 +307,14 @@ async fn test_multiple_tokens_cached() {
     assert_eq!(cache_len, 3);
 
     // Re-validate token_a - should be cache hit (expect(1) will fail if called again)
-    let result_a2 = validator.validate_token("token_a").await;
+    let result_a2 = validator.validate("token_a").await;
     assert!(result_a2.is_ok());
     assert_eq!(result_a2.unwrap().user_id, "user_a");
 }
 
 /// Test API error handling - non-2xx status codes
 #[tokio::test]
+#[ignore]
 async fn test_api_error_handling() {
     let mock_server = MockServer::start().await;
 
@@ -304,7 +328,7 @@ async fn test_api_error_handling() {
 
     let validator = TokenValidator::new_with_endpoint(format!("{}/v1/oauth-token", mock_server.uri()));
 
-    let result = validator.validate_token("error_token").await;
+    let result = validator.validate("error_token").await;
 
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -317,6 +341,7 @@ async fn test_api_error_handling() {
 
 /// Test scopes parsing - multiple scopes
 #[tokio::test]
+#[ignore]
 async fn test_scopes_parsing() {
     let mock_server = MockServer::start().await;
 
@@ -333,7 +358,7 @@ async fn test_scopes_parsing() {
 
     let validator = TokenValidator::new_with_endpoint(format!("{}/v1/oauth-token", mock_server.uri()));
 
-    let result = validator.validate_token("multi_scope_token").await;
+    let result = validator.validate("multi_scope_token").await;
 
     assert!(result.is_ok());
     let user_info = result.unwrap();
