@@ -2,24 +2,25 @@ name: Deploy to Scaleway
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - main
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  PROJECT_NAME: miro-mcp-adr005
+  REGION: fr-par
 
 jobs:
   deploy:
-    name: Deploy to Scaleway
+    name: Build and Deploy
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract version from tag
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Deploying version: $VERSION"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Install Scaleway CLI
         uses: scaleway/action-scw@v0
@@ -31,18 +32,77 @@ jobs:
           default-organization-id: ${{ secrets.SCW_DEFAULT_ORGANIZATION_ID }}
           export-config: true
 
-      - name: Deploy to Scaleway
-        env:
-          IMAGE_TAG: ${{ steps.version.outputs.version }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
+      - name: Get Scaleway Container Registry
+        id: registry
         run: |
-          chmod +x scripts/deploy-container.sh
-          ./scripts/deploy-container.sh
+          CONTAINER_NAMESPACE_ID=$(scw container namespace list region=${{ env.REGION }} -o json | jq -r '.[0].id')
+          REGISTRY_NAMESPACE_ID=$(scw container namespace list region=${{ env.REGION }} -o json | jq -r '.[0].registry_namespace_id')
+          REGISTRY_ENDPOINT=$(scw registry namespace get ${REGISTRY_NAMESPACE_ID} region=${{ env.REGION }} -o json | jq -r '.endpoint')
+          echo "endpoint=$REGISTRY_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "namespace_id=$CONTAINER_NAMESPACE_ID" >> $GITHUB_OUTPUT
+          echo "Registry: $REGISTRY_ENDPOINT"
+
+      - name: Login to Scaleway Container Registry
+        run: |
+          scw registry login region=${{ env.REGION }}
+
+      - name: Build and push Docker image
+        run: |
+          docker build -t ${{ env.PROJECT_NAME }}:latest .
+          docker tag ${{ env.PROJECT_NAME }}:latest ${{ steps.registry.outputs.endpoint }}/${{ env.PROJECT_NAME }}:latest
+          docker tag ${{ env.PROJECT_NAME }}:latest ${{ steps.registry.outputs.endpoint }}/${{ env.PROJECT_NAME }}:${{ github.sha }}
+          docker push ${{ steps.registry.outputs.endpoint }}/${{ env.PROJECT_NAME }}:latest
+          docker push ${{ steps.registry.outputs.endpoint }}/${{ env.PROJECT_NAME }}:${{ github.sha }}
+
+      - name: Deploy to Scaleway Containers
+        env:
+          MIRO_CLIENT_ID: ${{ secrets.MIRO_CLIENT_ID }}
+          MIRO_REDIRECT_URI: https://claude.ai/api/mcp/auth_callback
+          BASE_URL: https://miro-mcp-adr005.fly-agile.com
+          MCP_SERVER_PORT: "3010"
+        run: |
+          REGISTRY_IMAGE="${{ steps.registry.outputs.endpoint }}/${{ env.PROJECT_NAME }}:latest"
+          CONTAINER_ID=$(scw container container list region=${{ env.REGION }} -o json | jq -r ".[] | select(.name == \"${{ env.PROJECT_NAME }}\") | .id")
+
+          if [ -z "$CONTAINER_ID" ] || [ "$CONTAINER_ID" = "null" ]; then
+            echo "Creating new container..."
+            CONTAINER_ID=$(scw container container create \
+              name=${{ env.PROJECT_NAME }} \
+              region=${{ env.REGION }} \
+              namespace-id=${{ steps.registry.outputs.namespace_id }} \
+              registry-image=${REGISTRY_IMAGE} \
+              port=${MCP_SERVER_PORT} \
+              min-scale=1 \
+              max-scale=1 \
+              cpu-limit=250 \
+              memory-limit=256 \
+              environment-variables.MIRO_CLIENT_ID="${MIRO_CLIENT_ID}" \
+              environment-variables.MIRO_REDIRECT_URI="${MIRO_REDIRECT_URI}" \
+              environment-variables.BASE_URL="${BASE_URL}" \
+              environment-variables.MCP_SERVER_PORT="${MCP_SERVER_PORT}" \
+              environment-variables.LOG_FORMAT="json" \
+              environment-variables.RUST_LOG="info" \
+              -o json | jq -r '.id')
+          else
+            echo "Updating existing container (ID: ${CONTAINER_ID})..."
+            scw container container update ${CONTAINER_ID} \
+              region=${{ env.REGION }} \
+              registry-image=${REGISTRY_IMAGE} \
+              environment-variables.MIRO_CLIENT_ID="${MIRO_CLIENT_ID}" \
+              environment-variables.MIRO_REDIRECT_URI="${MIRO_REDIRECT_URI}" \
+              environment-variables.BASE_URL="${BASE_URL}" \
+              environment-variables.MCP_SERVER_PORT="${MCP_SERVER_PORT}" \
+              environment-variables.LOG_FORMAT="json" \
+              environment-variables.RUST_LOG="info"
+          fi
+
+          echo "Deploying container..."
+          scw container container deploy ${CONTAINER_ID} region=${{ env.REGION }} --wait
 
       - name: Validate deployment
         run: |
           # Get container info
-          CONTAINER_INFO=$(scw container container list region=fr-par -o json | jq -r '.[] | select(.name == "miro-mcp-server")')
+          CONTAINER_INFO=$(scw container container list region=${{ env.REGION }} -o json | jq -r ".[] | select(.name == \"${{ env.PROJECT_NAME }}\")")
           CONTAINER_URL=$(echo "$CONTAINER_INFO" | jq -r '.domain_name')
           CONTAINER_STATUS=$(echo "$CONTAINER_INFO" | jq -r '.status')
 
@@ -54,7 +114,7 @@ jobs:
           SLEEP_INTERVAL=5
 
           for i in $(seq 1 $MAX_ATTEMPTS); do
-            CURRENT_STATUS=$(scw container container list region=fr-par -o json | jq -r '.[] | select(.name == "miro-mcp-server") | .status')
+            CURRENT_STATUS=$(scw container container list region=${{ env.REGION }} -o json | jq -r ".[] | select(.name == \"${{ env.PROJECT_NAME }}\") | .status")
             echo "Attempt $i/$MAX_ATTEMPTS - Status: $CURRENT_STATUS"
 
             if [ "$CURRENT_STATUS" == "ready" ]; then
@@ -62,7 +122,8 @@ jobs:
               break
             elif [ "$CURRENT_STATUS" == "error" ]; then
               echo "✗ Container failed to start"
-              scw container container get region=fr-par container-id=$(echo "$CONTAINER_INFO" | jq -r '.id') -o json | jq '.error_message'
+              CONTAINER_ID=$(echo "$CONTAINER_INFO" | jq -r '.id')
+              scw container container get region=${{ env.REGION }} container-id=$CONTAINER_ID -o json | jq '.error_message'
               exit 1
             fi
 
@@ -86,21 +147,33 @@ jobs:
             exit 1
           fi
 
+          # Test metadata endpoint (Resource Server)
+          METADATA_ENDPOINT="https://${CONTAINER_URL}/.well-known/oauth-protected-resource"
+          echo "Testing metadata endpoint: $METADATA_ENDPOINT"
+
+          if curl -f -s "$METADATA_ENDPOINT" > /dev/null 2>&1; then
+            echo "✓ Metadata check passed"
+            curl -s "$METADATA_ENDPOINT" | jq '.'
+          else
+            echo "✗ Metadata check failed"
+            exit 1
+          fi
+
       - name: Deployment summary
         if: always()
         run: |
-          CONTAINER_INFO=$(scw container container list region=fr-par -o json | jq -r '.[] | select(.name == "miro-mcp-server")')
+          CONTAINER_INFO=$(scw container container list region=${{ env.REGION }} -o json | jq -r ".[] | select(.name == \"${{ env.PROJECT_NAME }}\")")
           CONTAINER_URL=$(echo "$CONTAINER_INFO" | jq -r '.domain_name')
           CONTAINER_STATUS=$(echo "$CONTAINER_INFO" | jq -r '.status')
 
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Container:** miro-mcp-server" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Container:** ${{ env.PROJECT_NAME }}" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** $CONTAINER_STATUS" >> $GITHUB_STEP_SUMMARY
           echo "**URL:** https://${CONTAINER_URL}" >> $GITHUB_STEP_SUMMARY
           echo "**Health:** https://${CONTAINER_URL}/health" >> $GITHUB_STEP_SUMMARY
-          echo "**OAuth:** https://${CONTAINER_URL}/oauth/authorize" >> $GITHUB_STEP_SUMMARY
+          echo "**OAuth Metadata:** https://${CONTAINER_URL}/.well-known/oauth-protected-resource" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ job.status }}" == "success" ]; then
