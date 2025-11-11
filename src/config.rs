@@ -183,10 +183,27 @@ impl Config {
     pub fn from_env_or_file() -> Result<Self, ConfigError> {
         // Try environment variables first (for container deployment)
         match Self::from_env_vars() {
-            Ok(config) => Ok(config),
-            Err(_) => {
+            Ok(config) => {
+                eprintln!("✓ Configuration loaded from environment variables");
+                Ok(config)
+            }
+            Err(env_err) => {
+                eprintln!("⚠ Failed to load config from environment: {}", env_err);
+                eprintln!("  Falling back to config file...");
                 // Fall back to config file (for local development)
-                Self::from_file()
+                match Self::from_file() {
+                    Ok(config) => Ok(config),
+                    Err(file_err) => {
+                        // Return both errors for better diagnostics
+                        Err(ConfigError::FileNotFound {
+                            path: "environment or file".to_string(),
+                            reason: format!(
+                                "Environment variable error: {}\nConfig file error: {}",
+                                env_err, file_err
+                            ),
+                        })
+                    }
+                }
             }
         }
     }
