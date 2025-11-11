@@ -101,12 +101,13 @@ async fn bearer_auth_middleware_adr002(
         Ok(token) => token,
         Err(e) => {
             warn!("Bearer token extraction failed: {}", e);
-            // Return 401 with WWW-Authenticate header per RFC 6750
+            // Return 401 with WWW-Authenticate header per RFC 6750 + RFC 9728
+            // Include resource_metadata parameter for OAuth auto-discovery
             return Ok((
                 StatusCode::UNAUTHORIZED,
                 [(
                     axum::http::header::WWW_AUTHENTICATE,
-                    "Bearer realm=\"miro-mcp-server\"",
+                    "Bearer realm=\"miro-mcp-server\", resource_metadata=\"/.well-known/oauth-protected-resource\"",
                 )],
             )
                 .into_response());
@@ -118,12 +119,13 @@ async fn bearer_auth_middleware_adr002(
         Ok(user_info) => user_info,
         Err(e) => {
             warn!("Token validation failed: {}", e);
-            // Return 401 with WWW-Authenticate header per RFC 6750
+            // Return 401 with WWW-Authenticate header per RFC 6750 + RFC 9728
+            // Include resource_metadata parameter for OAuth auto-discovery
             return Ok((
                 StatusCode::UNAUTHORIZED,
                 [(
                     axum::http::header::WWW_AUTHENTICATE,
-                    "Bearer realm=\"miro-mcp-server\", error=\"invalid_token\"",
+                    "Bearer realm=\"miro-mcp-server\", error=\"invalid_token\", resource_metadata=\"/.well-known/oauth-protected-resource\"",
                 )],
             )
                 .into_response());
