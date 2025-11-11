@@ -45,11 +45,6 @@
 - [x] CI2: Developer deploys new version via git tag (vs manual deployment) ✅ 2025-11-11
   - Note: Automated deployment workflow triggered by semantic version tags (v*.*.*), deploys to Scaleway Containers with health check validation
 
-## In Progress
-
-⚠️ **CONTEXT NEEDED**: User mentioned "3 P0 blockers in progress" but no items marked [⏳] below.
-Please clarify which items are actively being worked on.
-
 ## Blocked
 
 ⚠️ **RESOLUTION NEEDED**: Blocked items require explicit decision (DROP/DEFER/WORKAROUND)
@@ -217,7 +212,7 @@ Please clarify which items are actively being worked on.
   - **Acceptance Criteria**:
     - Add `MIRO_CLIENT_SECRET` to Scaleway Secret Manager
     - Add `MIRO_ENCRYPTION_KEY` to Scaleway Secret Manager (new for AUTH12)
-    - Update `deploy_scaleway.sh` to inject secrets at runtime via Scaleway API
+    - Update `scripts/deploy-container.sh` to inject secrets at runtime via Scaleway API
     - Verify secrets never appear in logs (even in debug mode)
     - Test OAuth flow with secrets loaded from Secret Manager
     - Document secret rotation procedure for compromise scenarios
@@ -238,7 +233,7 @@ Please clarify which items are actively being worked on.
     - Test Claude.ai web interface discovers OAuth metadata endpoint
     - Confirm Claude.ai initiates OAuth flow automatically (vs manual token input)
     - Validate metadata JSON matches Claude.ai expectations (authorization_endpoint, token_endpoint)
-    - Add automated test in `deploy_scaleway.sh` to verify metadata endpoint after deployment
+    - Add automated test in `scripts/deploy-container.sh` to verify metadata endpoint after deployment
     - Document Claude.ai OAuth discovery process for troubleshooting
   - **Dependencies**: DEPLOY2 (HTTPS endpoint deployed), AUTH14 (metadata updated for proxy pattern)
   - **Complexity**: 1.0 (verification and validation)
@@ -254,7 +249,7 @@ Please clarify which items are actively being worked on.
   - **Acceptance Criteria**:
     - Measure baseline: cargo build --release (record time and binary size)
     - Change default Cargo feature from `stdio-mcp` to `[]` (no default features)
-    - Update deploy_scaleway.sh to build with `--no-default-features --features http-mcp`
+    - Update scripts/deploy-container.sh to build with `--no-default-features --features http-mcp`
     - Measure optimized: cargo build --release --no-default-features --features http-mcp
     - Verify: Build time ≤30s AND binary size ≤27MB
     - Keep `stdio-mcp` feature available for local development
@@ -263,7 +258,7 @@ Please clarify which items are actively being worked on.
   - **Complexity**: 0.5 (simple Cargo.toml change)
 
 - [ ] **DEPLOY3**: Developer knows deployment succeeded in <30s (vs manual testing loop)
-  - **Current State**: deploy_scaleway.sh completes but requires manual curl testing to verify OAuth endpoint works
+  - **Current State**: scripts/deploy-container.sh completes but requires manual curl testing to verify OAuth endpoint works
   - **Target State**: Deployment script validates critical endpoints automatically, reports success/failure immediately
   - **Value**: Eliminates 5-minute manual testing loop after every deployment
   - **Acceptance Criteria**:
@@ -354,7 +349,7 @@ Please clarify which items are actively being worked on.
   - **Value**: Reduces deployment friction from 45min to 10min for routine updates
   - **Acceptance Criteria**:
     - README section "Deployment: Scaleway Containers" added
-    - Documents deploy_scaleway.sh usage and prerequisites
+    - Documents scripts/deploy-container.sh usage and prerequisites
     - Explains secret management via Scaleway Secret Manager (SEC1 implementation)
     - Provides troubleshooting guide: "Container not starting" → check logs via scw CLI
     - Includes cost monitoring section ($1-5/month target per framing.md)
