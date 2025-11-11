@@ -7,7 +7,7 @@ on:
   workflow_dispatch:  # Allow manual trigger
 
 env:
-  PROJECT_NAME: miro-mcp-adr005
+  PROJECT_NAME: miro-mcp-resource-server
   REGION: fr-par
 
 jobs:
@@ -58,7 +58,7 @@ jobs:
         env:
           MIRO_CLIENT_ID: ${{ secrets.MIRO_CLIENT_ID }}
           MIRO_REDIRECT_URI: https://claude.ai/api/mcp/auth_callback
-          BASE_URL: https://miro-mcp-adr005.fly-agile.com
+          BASE_URL: https://miro-mcp-resource-server.fly-agile.com
           MCP_SERVER_PORT: "3010"
         run: |
           REGISTRY_IMAGE="${{ steps.registry.outputs.endpoint }}/${{ env.PROJECT_NAME }}:latest"
