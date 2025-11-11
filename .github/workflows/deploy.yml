@@ -100,10 +100,11 @@ jobs:
           scw container container deploy ${CONTAINER_ID} region=${{ env.REGION }} --wait
 
       - name: Validate deployment
+        env:
+          CONTAINER_URL: miro-mcp-rs.fly-agile.com
         run: |
-          # Get container info
+          # Get container status
           CONTAINER_INFO=$(scw container container list region=${{ env.REGION }} -o json | jq -r ".[] | select(.name == \"${{ env.PROJECT_NAME }}\")")
-          CONTAINER_URL=$(echo "$CONTAINER_INFO" | jq -r '.domain_name')
           CONTAINER_STATUS=$(echo "$CONTAINER_INFO" | jq -r '.status')
 
           echo "Container Status: $CONTAINER_STATUS"
@@ -161,9 +162,10 @@ jobs:
 
       - name: Deployment summary
         if: always()
+        env:
+          CONTAINER_URL: miro-mcp-rs.fly-agile.com
         run: |
           CONTAINER_INFO=$(scw container container list region=${{ env.REGION }} -o json | jq -r ".[] | select(.name == \"${{ env.PROJECT_NAME }}\")")
-          CONTAINER_URL=$(echo "$CONTAINER_INFO" | jq -r '.domain_name')
           CONTAINER_STATUS=$(echo "$CONTAINER_INFO" | jq -r '.status')
 
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
