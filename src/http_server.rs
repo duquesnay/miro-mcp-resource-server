@@ -1,4 +1,4 @@
-use crate::auth::{extract_bearer_token, ProtectedResourceMetadata, TokenValidator};
+use crate::auth::{ProtectedResourceMetadata, TokenValidator};
 use crate::config::Config;
 use axum::{
     extract::State,
@@ -9,7 +9,7 @@ use axum::{
     Json, Router,
 };
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 // OAuth proxy removed in ADR-005 (Resource Server pattern)
@@ -76,79 +76,6 @@ async fn correlation_id_middleware(mut request: Request<axum::body::Body>, next:
 pub struct AppStateADR002 {
     pub token_validator: Arc<TokenValidator>,
     pub config: Arc<Config>,
-}
-
-/// Bearer token validation middleware for ADR-002
-/// Simplified version without OAuth client dependencies
-async fn bearer_auth_middleware_adr002(
-    State(state): State<AppStateADR002>,
-    mut request: Request<axum::body::Body>,
-    next: Next,
-) -> Result<Response, Response> {
-    // Extract request_id from extensions for structured logging
-    let request_id = request
-        .extensions()
-        .get::<RequestId>()
-        .map(|rid| rid.0.clone())
-        .unwrap_or_else(|| "unknown".to_string());
-
-    // Extract Bearer token from Authorization header
-    let token = match extract_bearer_token(request.headers()) {
-        Ok(token) => token,
-        Err(e) => {
-            warn!(
-                request_id = %request_id,
-                error = %e,
-                auth_stage = "token_extraction",
-                "Bearer token extraction failed"
-            );
-            // Return 401 with WWW-Authenticate header per RFC 6750
-            return Ok((
-                StatusCode::UNAUTHORIZED,
-                [(
-                    axum::http::header::WWW_AUTHENTICATE,
-                    "Bearer realm=\"miro-mcp-server\"",
-                )],
-            )
-                .into_response());
-        }
-    };
-
-    // Validate token with Miro API (with caching)
-    let user_info = match state.token_validator.validate(&token).await {
-        Ok(user_info) => user_info,
-        Err(e) => {
-            warn!(
-                request_id = %request_id,
-                error = %e,
-                auth_stage = "token_validation",
-                "Token validation failed"
-            );
-            // Return 401 with WWW-Authenticate header per RFC 6750
-            return Ok((
-                StatusCode::UNAUTHORIZED,
-                [(
-                    axum::http::header::WWW_AUTHENTICATE,
-                    "Bearer realm=\"miro-mcp-server\", error=\"invalid_token\"",
-                )],
-            )
-                .into_response());
-        }
-    };
-
-    info!(
-        request_id = %request_id,
-        user_id = %user_info.user_id,
-        team_id = ?user_info.team_id,
-        scopes = ?user_info.scopes,
-        "Request authenticated successfully"
-    );
-
-    // Store both token and user_info in request extensions for handlers
-    request.extensions_mut().insert(Arc::new(token));
-    request.extensions_mut().insert(Arc::new(user_info));
-
-    Ok(next.run(request).await)
 }
 
 /// Create HTTP server for ADR-005 Resource Server pattern

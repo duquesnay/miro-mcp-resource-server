@@ -114,7 +114,7 @@ impl TokenValidator {
     /// # Arguments
     ///
     /// * `resource_url` - Our MCP server URL (e.g., "https://miro-mcp.fly-agile.com")
-    ///                    Must match the audience claim in JWT
+    ///   Must match the audience claim in JWT
     pub fn new(resource_url: String) -> Self {
         Self {
             cache: Mutex::new(LruCache::new(NonZeroUsize::new(100).unwrap())),
