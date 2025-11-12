@@ -317,7 +317,12 @@ mod tests {
             .as_secs()
             + 3600;
 
-        let token = create_test_jwt("user123", "https://test.example.com", future_exp, Some("boards:read"));
+        let token = create_test_jwt(
+            "user123",
+            "https://test.example.com",
+            future_exp,
+            Some("boards:read"),
+        );
 
         let result = validator.validate(&token).await;
         assert!(result.is_ok());

@@ -1,6 +1,5 @@
 use miro_mcp_server::{
-    Config, CookieStateManager, CookieTokenManager, MiroMcpServer, MiroOAuthClient,
-    TokenValidator,
+    Config, CookieStateManager, CookieTokenManager, MiroMcpServer, MiroOAuthClient, TokenValidator,
 };
 use rmcp::transport::stdio;
 use rmcp::ServiceExt;

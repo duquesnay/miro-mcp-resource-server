@@ -19,7 +19,10 @@ fn get_test_config() -> Config {
 fn create_test_app() -> Router {
     let config = Arc::new(get_test_config());
     let token_validator = Arc::new(TokenValidator::new(
-        config.base_url.clone().unwrap_or_else(|| "https://test.example.com".to_string())
+        config
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://test.example.com".to_string()),
     ));
 
     create_app_adr002(token_validator, config)

@@ -45,12 +45,11 @@ impl ProtectedResourceMetadata {
             // Miro's OAuth authorization server
             authorization_servers: vec!["https://miro.com".to_string()],
             // Miro scopes for board access
-            scopes_supported: Some(vec![
-                "boards:read".to_string(),
-                "boards:write".to_string(),
-            ]),
+            scopes_supported: Some(vec!["boards:read".to_string(), "boards:write".to_string()]),
             // Miro's introspection endpoint
-            introspection_endpoint: Some("https://api.miro.com/v2/oauth/token/introspect".to_string()),
+            introspection_endpoint: Some(
+                "https://api.miro.com/v2/oauth/token/introspect".to_string(),
+            ),
             revocation_endpoint: None, // Miro doesn't provide public revocation endpoint
         }
     }
@@ -91,44 +90,39 @@ mod tests {
 
     #[test]
     fn test_validate_success() {
-        let metadata = ProtectedResourceMetadata::new_for_miro(
-            "https://miro-mcp.fly-agile.com".to_string(),
-        );
+        let metadata =
+            ProtectedResourceMetadata::new_for_miro("https://miro-mcp.fly-agile.com".to_string());
         assert!(metadata.validate().is_ok());
     }
 
     #[test]
     fn test_validate_empty_resource() {
-        let mut metadata = ProtectedResourceMetadata::new_for_miro(
-            "https://miro-mcp.fly-agile.com".to_string(),
-        );
+        let mut metadata =
+            ProtectedResourceMetadata::new_for_miro("https://miro-mcp.fly-agile.com".to_string());
         metadata.resource = "".to_string();
         assert!(metadata.validate().is_err());
     }
 
     #[test]
     fn test_validate_no_auth_servers() {
-        let mut metadata = ProtectedResourceMetadata::new_for_miro(
-            "https://miro-mcp.fly-agile.com".to_string(),
-        );
+        let mut metadata =
+            ProtectedResourceMetadata::new_for_miro("https://miro-mcp.fly-agile.com".to_string());
         metadata.authorization_servers.clear();
         assert!(metadata.validate().is_err());
     }
 
     #[test]
     fn test_validate_invalid_url() {
-        let mut metadata = ProtectedResourceMetadata::new_for_miro(
-            "https://miro-mcp.fly-agile.com".to_string(),
-        );
+        let mut metadata =
+            ProtectedResourceMetadata::new_for_miro("https://miro-mcp.fly-agile.com".to_string());
         metadata.resource = "not-a-url".to_string();
         assert!(metadata.validate().is_err());
     }
 
     #[test]
     fn test_serialization() {
-        let metadata = ProtectedResourceMetadata::new_for_miro(
-            "https://miro-mcp.fly-agile.com".to_string(),
-        );
+        let metadata =
+            ProtectedResourceMetadata::new_for_miro("https://miro-mcp.fly-agile.com".to_string());
         let json = serde_json::to_string(&metadata).unwrap();
         assert!(json.contains("resource"));
         assert!(json.contains("authorization_servers"));

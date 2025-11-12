@@ -6,7 +6,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
-    Router, Json,
+    Json, Router,
 };
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -22,12 +22,11 @@ async fn health_check() -> impl IntoResponse {
 
 /// Protected Resource Metadata endpoint (RFC 9728)
 /// Advertises OAuth authorization server and resource capabilities
-async fn protected_resource_metadata(
-    State(config): State<Arc<Config>>,
-) -> impl IntoResponse {
-    let base_url = config.base_url.clone().unwrap_or_else(|| {
-        "https://miro-mcp.example.com".to_string()
-    });
+async fn protected_resource_metadata(State(config): State<Arc<Config>>) -> impl IntoResponse {
+    let base_url = config
+        .base_url
+        .clone()
+        .unwrap_or_else(|| "https://miro-mcp.example.com".to_string());
     let metadata = ProtectedResourceMetadata::new_for_miro(base_url);
     Json(metadata)
 }
@@ -44,10 +43,7 @@ pub struct RequestId(pub String);
 
 /// Correlation ID middleware - adds unique request_id to all requests
 /// This enables tracing requests across the entire lifecycle for debugging
-async fn correlation_id_middleware(
-    mut request: Request<axum::body::Body>,
-    next: Next,
-) -> Response {
+async fn correlation_id_middleware(mut request: Request<axum::body::Body>, next: Next) -> Response {
     // Generate unique request ID
     let request_id = Uuid::new_v4().to_string();
 
@@ -60,7 +56,9 @@ async fn correlation_id_middleware(
     );
 
     // Store request_id in extensions for access in handlers
-    request.extensions_mut().insert(RequestId(request_id.clone()));
+    request
+        .extensions_mut()
+        .insert(RequestId(request_id.clone()));
 
     // Execute request within the span
     let _enter = span.enter();
@@ -159,10 +157,7 @@ async fn bearer_auth_middleware_adr002(
 /// - Protected Resource Metadata endpoint (RFC 9728)
 /// - Bearer token authentication with JWT validation
 /// - MCP protocol endpoints
-pub fn create_app_adr002(
-    token_validator: Arc<TokenValidator>,
-    config: Arc<Config>,
-) -> Router {
+pub fn create_app_adr002(token_validator: Arc<TokenValidator>, config: Arc<Config>) -> Router {
     let state = AppStateADR002 {
         token_validator,
         config,
@@ -171,7 +166,10 @@ pub fn create_app_adr002(
     // Public routes (no authentication required)
     let public_routes = Router::new()
         .route("/health", get(health_check))
-        .route("/.well-known/oauth-protected-resource", get(protected_resource_metadata))
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(protected_resource_metadata),
+        )
         .with_state(state.config.clone());
 
     // Apply correlation ID middleware to ALL requests
@@ -193,7 +191,10 @@ pub async fn run_server_adr002(
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
     info!("ADR-005 Resource Server listening on {}", addr);
-    info!("Protected Resource Metadata: http://{}/.well-known/oauth-protected-resource", addr);
+    info!(
+        "Protected Resource Metadata: http://{}/.well-known/oauth-protected-resource",
+        addr
+    );
     info!("OAuth handled by Claude.ai - we validate JWT tokens");
     info!("Protected endpoints require Bearer token with valid audience");
 
@@ -215,7 +216,10 @@ mod tests {
     fn test_create_app_adr002() {
         let config = Arc::new(Config::from_env_or_file().unwrap());
         let token_validator = Arc::new(TokenValidator::new(
-            config.base_url.clone().unwrap_or_else(|| "https://test.example.com".to_string())
+            config
+                .base_url
+                .clone()
+                .unwrap_or_else(|| "https://test.example.com".to_string()),
         ));
         let app = create_app_adr002(token_validator, config);
         assert!(std::mem::size_of_val(&app) > 0);

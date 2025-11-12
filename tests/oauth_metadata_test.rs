@@ -24,7 +24,10 @@ fn get_test_config() -> Config {
 async fn test_metadata_endpoint_returns_rfc9728_format() {
     let config = Arc::new(get_test_config());
     let token_validator = Arc::new(TokenValidator::new(
-        config.base_url.clone().unwrap_or_else(|| "https://test.example.com".to_string())
+        config
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://test.example.com".to_string()),
     ));
     let app = create_app_adr002(token_validator, config.clone());
 
@@ -108,7 +111,10 @@ async fn test_metadata_endpoint_returns_rfc9728_format() {
 async fn test_metadata_does_not_include_rfc8414_fields() {
     let config = Arc::new(get_test_config());
     let token_validator = Arc::new(TokenValidator::new(
-        config.base_url.clone().unwrap_or_else(|| "https://test.example.com".to_string())
+        config
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://test.example.com".to_string()),
     ));
     let app = create_app_adr002(token_validator, config);
 
