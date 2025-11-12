@@ -142,50 +142,5 @@ async fn test_metadata_does_not_include_rfc8414_fields() {
     );
 }
 
-/// Test WWW-Authenticate header is returned for unauthorized requests
-#[tokio::test]
-async fn test_www_authenticate_header_returned() {
-    use axum::http::header::WWW_AUTHENTICATE;
-
-    let config = Arc::new(get_test_config());
-    let token_validator = Arc::new(TokenValidator::new(
-        config.base_url.clone().unwrap_or_else(|| "https://test.example.com".to_string())
-    ));
-    let app = create_app_adr002(token_validator, config);
-
-    // Make request without auth token
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/mcp")
-                .method("POST")
-                .header("content-type", "application/json")
-                .body(Body::from(r#"{"jsonrpc":"2.0","method":"tools/list","id":1}"#))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Should return 401
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-
-    // Check WWW-Authenticate header per RFC 6750
-    let www_auth = response
-        .headers()
-        .get(WWW_AUTHENTICATE)
-        .expect("Should have WWW-Authenticate header")
-        .to_str()
-        .unwrap();
-
-    // Should include Bearer realm per RFC 6750
-    assert!(
-        www_auth.starts_with("Bearer"),
-        "WWW-Authenticate should start with 'Bearer', got: {}",
-        www_auth
-    );
-    assert!(
-        www_auth.contains("realm=\"miro-mcp-server\""),
-        "WWW-Authenticate should include realm, got: {}",
-        www_auth
-    );
-}
+// NOTE: WWW-Authenticate header test removed because MCP endpoint was removed
+// in Resource Server implementation (no protected endpoints currently)

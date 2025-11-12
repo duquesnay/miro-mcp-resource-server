@@ -1,8 +1,5 @@
-use crate::auth::{extract_bearer_token, TokenValidator};
+use crate::auth::{extract_bearer_token, ProtectedResourceMetadata, TokenValidator};
 use crate::config::Config;
-use crate::mcp::{protected_resource_metadata, JsonRpcRequest, JsonRpcResponse, JsonRpcError};
-use crate::mcp::{handle_initialize, handle_tools_list, handle_tools_call};
-use crate::auth::token_validator::UserInfo;
 use axum::{
     extract::State,
     http::{Request, StatusCode},
@@ -12,7 +9,7 @@ use axum::{
     Router, Json,
 };
 use std::sync::Arc;
-use tracing::{info, warn, error};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 // OAuth proxy removed in ADR-005 (Resource Server pattern)
@@ -23,62 +20,16 @@ async fn health_check() -> impl IntoResponse {
     (StatusCode::OK, "OK")
 }
 
-/// MCP Protocol endpoint for JSON-RPC 2.0 requests
-///
-/// Handles MCP methods:
-/// - initialize: Handshake and capability negotiation
-/// - tools/list: List available tools
-/// - tools/call: Execute a tool
-///
-/// Requires Bearer token authentication (provided by middleware).
-/// Token and user info are extracted from request extensions.
-async fn mcp_endpoint(
-    axum::Extension(token): axum::Extension<Arc<String>>,
-    axum::Extension(user_info): axum::Extension<Arc<UserInfo>>,
-    Json(req): Json<JsonRpcRequest>,
+/// Protected Resource Metadata endpoint (RFC 9728)
+/// Advertises OAuth authorization server and resource capabilities
+async fn protected_resource_metadata(
+    State(config): State<Arc<Config>>,
 ) -> impl IntoResponse {
-    // Validate JSON-RPC request format
-    if let Err(e) = req.validate() {
-        error!("Invalid JSON-RPC request: {}", e);
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(JsonRpcResponse::error(
-                JsonRpcError::invalid_request(e),
-                req.id.clone(),
-            )),
-        );
-    }
-
-    info!(
-        method = %req.method,
-        user_id = %user_info.user_id,
-        "Processing MCP request"
-    );
-
-    // Route to appropriate handler
-    let response = match req.method.as_str() {
-        "initialize" => {
-            info!("Handling initialize request");
-            handle_initialize(&req, &user_info)
-        }
-        "tools/list" => {
-            info!("Handling tools/list request");
-            handle_tools_list(&req, &user_info)
-        }
-        "tools/call" => {
-            info!("Handling tools/call request");
-            handle_tools_call(&req, &user_info, &token).await
-        }
-        method => {
-            warn!(method = %method, "Unknown MCP method");
-            JsonRpcResponse::error(
-                JsonRpcError::method_not_found(method),
-                req.id.clone(),
-            )
-        }
-    };
-
-    (StatusCode::OK, Json(response))
+    let base_url = config.base_url.clone().unwrap_or_else(|| {
+        "https://miro-mcp.example.com".to_string()
+    });
+    let metadata = ProtectedResourceMetadata::new_for_miro(base_url);
+    Json(metadata)
 }
 
 //
@@ -220,22 +171,12 @@ pub fn create_app_adr002(
     // Public routes (no authentication required)
     let public_routes = Router::new()
         .route("/health", get(health_check))
-        .route("/.well-known/oauth-protected-resource", get(protected_resource_metadata));
+        .route("/.well-known/oauth-protected-resource", get(protected_resource_metadata))
+        .with_state(state.config.clone());
 
-    // Protected routes (Bearer token required)
-    let protected_routes = Router::new()
-        .route("/mcp", axum::routing::post(mcp_endpoint))
-        .route("/mcp/list_boards", axum::routing::post(crate::mcp::tools::list_boards))
-        .route("/mcp/get_board/:board_id", axum::routing::post(crate::mcp::tools::get_board))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            bearer_auth_middleware_adr002,
-        ));
-
-    // Merge routes and apply correlation ID middleware to ALL requests
+    // Apply correlation ID middleware to ALL requests
     Router::new()
-        .merge(public_routes.with_state(state.config.clone()))
-        .merge(protected_routes)
+        .merge(public_routes)
         .layer(middleware::from_fn(correlation_id_middleware))
 }
 

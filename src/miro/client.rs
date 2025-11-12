@@ -1,4 +1,4 @@
-use crate::auth::{AuthError, MiroOAuthClient, TokenSet, TokenStore};
+use crate::auth::AuthError;
 use crate::miro::types::{
     Board, BoardsResponse, BulkCreateRequest, BulkCreateResponse, Caption, ConnectorResponse,
     ConnectorStyle, CreateBoardRequest, CreateBoardResponse, CreateConnectorRequest,
@@ -8,8 +8,6 @@ use crate::miro::types::{
 };
 use reqwest::StatusCode;
 use serde_json::Value;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 /// Error types for Miro API operations
 #[derive(Debug, thiserror::Error)]
@@ -26,7 +24,7 @@ pub enum MiroError {
     #[error("API error {status}: {message}")]
     ApiError { status: u16, message: String },
 
-    #[error("Unauthorized - token may be expired")]
+    #[error("Unauthorized - token may be invalid or expired")]
     Unauthorized,
 
     #[error("Rate limit exceeded")]
@@ -36,42 +34,29 @@ pub enum MiroError {
     BulkOperationError(String),
 }
 
-/// Miro API client with automatic token refresh
+/// Miro API client for Resource Server pattern
+/// Accepts Bearer tokens from Authorization header (managed by Claude.ai)
 pub struct MiroClient {
     http_client: reqwest::Client,
-    token_store: Arc<RwLock<TokenStore>>,
-    oauth_client: Arc<MiroOAuthClient>,
+    bearer_token: String,
 }
 
 impl MiroClient {
-    /// Create a new Miro API client
-    pub fn new(token_store: TokenStore, oauth_client: MiroOAuthClient) -> Result<Self, MiroError> {
+    /// Create a new Miro API client with a bearer token
+    pub fn new(bearer_token: String) -> Result<Self, MiroError> {
         let http_client = reqwest::Client::builder()
             .user_agent("miro-mcp-server/0.1.0")
             .build()?;
 
         Ok(Self {
             http_client,
-            token_store: Arc::new(RwLock::new(token_store)),
-            oauth_client: Arc::new(oauth_client),
+            bearer_token,
         })
     }
 
     // ==================== Builder Convenience Methods ====================
 
     /// Create a sticky note builder for fluent API usage
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use miro_mcp_server::miro::client::MiroClient;
-    /// # async fn example(client: &MiroClient) -> Result<(), Box<dyn std::error::Error>> {
-    /// let note = client.sticky_note("board-id", "Hello", 0.0, 100.0)
-    ///     .color("yellow")
-    ///     .build(&client)
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn sticky_note(
         &self,
         board_id: impl Into<String>,
@@ -83,18 +68,6 @@ impl MiroClient {
     }
 
     /// Create a shape builder for fluent API usage
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use miro_mcp_server::miro::client::MiroClient;
-    /// # async fn example(client: &MiroClient) -> Result<(), Box<dyn std::error::Error>> {
-    /// let shape = client.shape("board-id", "rectangle", 0.0, 100.0, 200.0, 100.0)
-    ///     .fill_color("blue")
-    ///     .build(&client)
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn shape(
         &self,
         board_id: impl Into<String>,
@@ -108,18 +81,6 @@ impl MiroClient {
     }
 
     /// Create a text builder for fluent API usage
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use miro_mcp_server::miro::client::MiroClient;
-    /// # async fn example(client: &MiroClient) -> Result<(), Box<dyn std::error::Error>> {
-    /// let text = client.text("board-id", "Hello", 0.0, 100.0, 300.0)
-    ///     .parent_id("frame-123")
-    ///     .build(&client)
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn text(
         &self,
         board_id: impl Into<String>,
@@ -132,19 +93,6 @@ impl MiroClient {
     }
 
     /// Create a connector builder for fluent API usage
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use miro_mcp_server::miro::client::MiroClient;
-    /// # async fn example(client: &MiroClient) -> Result<(), Box<dyn std::error::Error>> {
-    /// let connector = client.connector("board-id", "item-1", "item-2")
-    ///     .stroke_color("blue")
-    ///     .end_cap("arrow")
-    ///     .build(&client)
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn connector(
         &self,
         board_id: impl Into<String>,
@@ -157,41 +105,6 @@ impl MiroClient {
     /// Helper to construct Parent from optional parent_id
     fn make_parent(parent_id: Option<String>) -> Option<Parent> {
         parent_id.map(|id| Parent { id })
-    }
-
-    /// Get a valid access token, refreshing if necessary
-    async fn get_valid_token(&self) -> Result<String, MiroError> {
-        let token_store = self.token_store.read().await;
-        let tokens = token_store.load()?;
-
-        // Check if token is expired
-        if tokens.is_expired() {
-            drop(token_store); // Release read lock
-
-            // Refresh the token
-            let refresh_token = tokens.refresh_token.ok_or(AuthError::NoToken)?;
-
-            let cookie_data = self
-                .oauth_client
-                .refresh_token(&refresh_token)
-                .await
-                .map_err(|e| AuthError::TokenRefreshFailed(e.to_string()))?;
-
-            // Convert CookieData to TokenSet
-            let new_tokens = TokenSet {
-                access_token: cookie_data.access_token.clone(),
-                refresh_token: Some(cookie_data.refresh_token.clone()),
-                expires_at: cookie_data.expires_at.timestamp() as u64,
-            };
-
-            // Save the new tokens
-            let token_store = self.token_store.write().await;
-            token_store.save(&new_tokens)?;
-
-            Ok(new_tokens.access_token)
-        } else {
-            Ok(tokens.access_token)
-        }
     }
 
     /// Make an authenticated GET request to Miro API
@@ -521,7 +434,7 @@ impl MiroClient {
         Ok(bulk_response.data)
     }
 
-    /// Make an authenticated request with automatic retry on 401
+    /// Make an authenticated request to Miro API
     async fn request(
         &self,
         method: &str,
@@ -530,57 +443,11 @@ impl MiroClient {
     ) -> Result<Value, MiroError> {
         let url = format!("https://api.miro.com/v2{}", path);
 
-        // First attempt
-        match self.execute_request(method, &url, body.clone()).await {
-            Ok(response) => Ok(response),
-            Err(MiroError::Unauthorized) => {
-                // Token might be expired, force refresh and retry once
-                let token_store = self.token_store.read().await;
-                let tokens = token_store.load()?;
-                drop(token_store);
-
-                if let Some(refresh_token) = tokens.refresh_token {
-                    let cookie_data = self
-                        .oauth_client
-                        .refresh_token(&refresh_token)
-                        .await
-                        .map_err(|e| MiroError::AuthError(AuthError::TokenRefreshFailed(e.to_string())))?;
-
-                    // Convert CookieData to TokenSet
-                    let new_tokens = TokenSet {
-                        access_token: cookie_data.access_token.clone(),
-                        refresh_token: Some(cookie_data.refresh_token.clone()),
-                        expires_at: cookie_data.expires_at.timestamp() as u64,
-                    };
-
-                    let token_store = self.token_store.write().await;
-                    token_store.save(&new_tokens)?;
-                    drop(token_store);
-
-                    // Retry the request with new token
-                    self.execute_request(method, &url, body).await
-                } else {
-                    Err(MiroError::Unauthorized)
-                }
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    /// Execute a single HTTP request
-    async fn execute_request(
-        &self,
-        method: &str,
-        url: &str,
-        body: Option<Value>,
-    ) -> Result<Value, MiroError> {
-        let token = self.get_valid_token().await?;
-
         let mut request = match method {
-            "GET" => self.http_client.get(url),
-            "POST" => self.http_client.post(url),
-            "PATCH" => self.http_client.patch(url),
-            "DELETE" => self.http_client.delete(url),
+            "GET" => self.http_client.get(&url),
+            "POST" => self.http_client.post(&url),
+            "PATCH" => self.http_client.patch(&url),
+            "DELETE" => self.http_client.delete(&url),
             _ => {
                 return Err(MiroError::ApiError {
                     status: 400,
@@ -589,7 +456,8 @@ impl MiroClient {
             }
         };
 
-        request = request.bearer_auth(&token);
+        // Use Bearer token from constructor
+        request = request.bearer_auth(&self.bearer_token);
 
         if let Some(body_value) = body {
             request = request.json(&body_value);
@@ -623,26 +491,11 @@ impl MiroClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
-
-    fn get_test_config() -> Config {
-        Config {
-            client_id: "test_client_id".to_string(),
-            client_secret: "test_client_secret".to_string(),
-            redirect_uri: "http://localhost:3000/oauth/callback".to_string(),
-            encryption_key: [0u8; 32],
-            port: 3000,
-            base_url: None,
-        }
-    }
 
     #[test]
     fn test_client_creation() {
-        let config = get_test_config();
-        let token_store = TokenStore::new(config.encryption_key).unwrap();
-        let oauth_client = MiroOAuthClient::new(config.client_id.clone(), config.client_secret.clone(), config.redirect_uri.clone());
-
-        let result = MiroClient::new(token_store, oauth_client);
+        let bearer_token = "test_bearer_token".to_string();
+        let result = MiroClient::new(bearer_token);
         assert!(result.is_ok());
     }
 
@@ -782,10 +635,8 @@ mod tests {
 
     #[test]
     fn test_bulk_create_validation_empty_items() {
-        let config = get_test_config();
-        let token_store = TokenStore::new(config.encryption_key).unwrap();
-        let oauth_client = MiroOAuthClient::new(config.client_id.clone(), config.client_secret.clone(), config.redirect_uri.clone());
-        let client = MiroClient::new(token_store, oauth_client).unwrap();
+        let bearer_token = "test_bearer_token".to_string();
+        let client = MiroClient::new(bearer_token).unwrap();
 
         // Test validation: empty items array should fail
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -802,10 +653,8 @@ mod tests {
 
     #[test]
     fn test_bulk_create_validation_too_many_items() {
-        let config = get_test_config();
-        let token_store = TokenStore::new(config.encryption_key).unwrap();
-        let oauth_client = MiroOAuthClient::new(config.client_id.clone(), config.client_secret.clone(), config.redirect_uri.clone());
-        let client = MiroClient::new(token_store, oauth_client).unwrap();
+        let bearer_token = "test_bearer_token".to_string();
+        let client = MiroClient::new(bearer_token).unwrap();
 
         // Create 21 items (exceeds limit of 20)
         let items: Vec<_> = (0..21)
