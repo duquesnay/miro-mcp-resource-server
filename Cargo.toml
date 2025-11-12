@@ -44,16 +44,6 @@ default = []
 test-utils = []
 
 [[bin]]
-name = "miro-mcp-server"
-path = "src/main.rs"
-required-features = ["stdio-mcp"]
-
-[[bin]]
-name = "miro-mcp-http"
-path = "src/bin/miro-mcp-http.rs"
-required-features = ["stdio-mcp"]
-
-[[bin]]
 name = "server"
 path = "src/bin/server.rs"
-# No required-features - builds without rmcp
+# No required-features - builds without rmcp (Resource Server pattern)
