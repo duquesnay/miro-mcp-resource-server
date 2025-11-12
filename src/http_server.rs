@@ -141,7 +141,16 @@ mod tests {
 
     #[test]
     fn test_create_app_adr002() {
-        let config = Arc::new(Config::from_env_or_file().unwrap());
+        // Create test-specific Config instead of loading from environment/file
+        let config = Arc::new(Config {
+            client_id: "test_client_id".to_string(),
+            client_secret: "test_secret".to_string(),
+            redirect_uri: "http://localhost:3000/callback".to_string(),
+            encryption_key: [0u8; 32],
+            port: 3000,
+            base_url: Some("https://test.example.com".to_string()),
+        });
+
         let token_validator = Arc::new(TokenValidator::new(
             config
                 .base_url
